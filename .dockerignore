@@ -1,0 +1,44 @@
+# Keep the build context lean — everything not required to build.
+
+# Build outputs (the Dockerfile will regenerate these inside the container)
+build-wasm/
+build/
+out/
+cmake-build-*/
+
+# User-local SDK
+emsdk/
+
+# Git
+.git/
+.github/
+
+# IDE / editor
+.vscode/
+.idea/
+.vs/
+*.swp
+*.swo
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Node / tooling cruft
+node_modules/
+
+# Docs / ancillary — not needed to compile
+docs/
+*.md
+!README.md
+
+# Logs / tmp
+*.log
+*.tmp
+last-run.*
+
+# Large vendored directories that aren't needed by the build — keep only
+# what CMake actually pulls from. (If you add new build-time inputs,
+# un-exclude them here.)
+unused/

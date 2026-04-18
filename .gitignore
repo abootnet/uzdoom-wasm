@@ -1,0 +1,119 @@
+# ---------------------------------------------------------------------------
+# Build outputs
+# ---------------------------------------------------------------------------
+/build-wasm/
+/build/
+/build2/
+/build_*/
+/release_gcc/
+/out/
+/cmake-build-*/
+/AppDir/
+/appimage-build/
+/mapfiles_release/*.map
+/llvm/
+
+# CMake byproducts if accidentally generated in-tree
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+*.cmake.stamp
+
+# MSVC / IDE build cruft
+*.ncb
+*.suo
+*.pdb
+*.ilk
+*.aps
+*.user
+*.local
+
+# Flatpak / AppImage
+.flatpak-builder/
+*.flatpak
+flatpak/
+*.AppImage
+
+# ---------------------------------------------------------------------------
+# Emscripten SDK (user-installed, lives outside the repo)
+# ---------------------------------------------------------------------------
+/emsdk/
+
+# ---------------------------------------------------------------------------
+# Generated source
+# ---------------------------------------------------------------------------
+/src/gitinfo.h
+/src/gl/unused
+/disasm.txt
+/DOOMSTATS.TXT
+gzdoom-crash.log
+
+# ---------------------------------------------------------------------------
+# Game content — copyright-sensitive, never commit user-supplied files.
+# UZDoom upstream ships legitimate asset sources under `wadsrc*/`,
+# `soundfont/`, `fm_banks/`; whitelisted below so they survive.
+# ---------------------------------------------------------------------------
+*.wad
+*.WAD
+*.pk3
+*.PK3
+*.pk7
+*.PK7
+*.deh
+*.DEH
+*.bex
+*.BEX
+*.sf2
+*.SF2
+
+# Whitelist upstream-shipped asset sources
+!wadsrc/**
+!wadsrc_bm/**
+!wadsrc_extra/**
+!wadsrc_lights/**
+!wadsrc_widepix/**
+!soundfont/**
+!fm_banks/**
+
+# Also keep the build-time-generated wadsrc dirs out
+/wadsrc_wad
+
+# ---------------------------------------------------------------------------
+# IDE / editor cruft
+# ---------------------------------------------------------------------------
+.vscode/
+.vs/
+.idea/
+.cache/
+*.swp
+*.swo
+*~
+*.sublime-*
+*.kate-swp
+*.geany
+.gdb_history
+
+# ---------------------------------------------------------------------------
+# OS junk
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# ---------------------------------------------------------------------------
+# Node / JS tooling
+# ---------------------------------------------------------------------------
+node_modules/
+package-lock.json
+npm-debug.log
+yarn-error.log
+
+# ---------------------------------------------------------------------------
+# Runtime / session artifacts
+# ---------------------------------------------------------------------------
+*.log
+*.tmp
+last-run.*

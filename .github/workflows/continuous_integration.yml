@@ -1,0 +1,257 @@
+name: Continuous Integration
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    name: ${{ matrix.config.name }} | ${{ matrix.config.build_type }}
+    runs-on: ${{ matrix.config.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+        - name: Visual Studio 2022
+          os: windows-2022
+          extra_options: -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl
+          build_type: Release
+
+        - name: Visual Studio 2022
+          os: windows-2022
+          extra_options: -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl
+          build_type: RelWithDebInfo
+
+        - name: macOS
+          os: macos-14
+          extra_options: -DHAVE_VULKAN=ON -DHAVE_GLES2=OFF -DDYN_OPENAL=OFF -DOPENAL_INCLUDE_DIR=/opt/homebrew/opt/openal-soft/include/AL -DOPENAL_LIBRARY=/opt/homebrew/opt/openal-soft/lib/libopenal.dylib
+          deps_cmdline: |
+            brew install   \
+              dylibbundler \
+              fluid-synth  \
+              openal-soft  \
+              vulkan-volk  \
+              molten-vk    \
+              libvpx       \
+              sdl2
+          build_type: Release
+
+        - name: macOS
+          os: macos-14
+          extra_options: -DHAVE_VULKAN=ON -DHAVE_GLES2=OFF -DDYN_OPENAL=OFF -DOPENAL_INCLUDE_DIR=/opt/homebrew/opt/openal-soft/include/AL -DOPENAL_LIBRARY=/opt/homebrew/opt/openal-soft/lib/libopenal.dylib
+          deps_cmdline: |
+            brew install   \
+              dylibbundler \
+              fluid-synth  \
+              openal-soft  \
+              vulkan-volk  \
+              molten-vk    \
+              libvpx       \
+              sdl2
+          build_type: RelWithDebInfo
+
+        - name: Linux GCC
+          os: ubuntu-latest
+          deps_cmdline: sudo apt-get update && sudo apt-get install libsdl2-dev libvpx-dev libwebp-dev waylandpp-dev libbz2-dev libomp-dev libopenal-dev
+          build_type: RelWithDebInfo
+
+        - name: Linux GCC
+          os: ubuntu-latest
+          deps_cmdline: sudo apt-get update && sudo apt-get install libsdl2-dev libvpx-dev libwebp-dev waylandpp-dev libbz2-dev libomp-dev libopenal-dev
+          build_type: Release
+
+        - name: Linux GCC Legacy
+          os: ubuntu-22.04
+          deps_cmdline: sudo apt-get update && sudo apt-get install libsdl2-dev libvpx-dev libwebp-dev waylandpp-dev libbz2-dev libomp-dev libopenal-dev
+          build_type: RelWithDebInfo
+
+        - name: Linux GCC Legacy
+          os: ubuntu-22.04
+          deps_cmdline: sudo apt-get update && sudo apt-get install libsdl2-dev libvpx-dev libwebp-dev waylandpp-dev libbz2-dev libomp-dev libopenal-dev
+          build_type: Release
+
+    steps:
+    - name: Setup
+      uses: actions/checkout@v4
+
+    - name: Setup
+      id: ghd
+      uses: proudust/gh-describe@v2
+
+    - name: Setup
+      uses: ilammy/msvc-dev-cmd@v1
+
+    - name: Install Dependencies
+      shell: bash
+      run: |
+        if [[ -n "${{ matrix.config.deps_cmdline }}" ]]; then
+          eval ${{ matrix.config.deps_cmdline }}
+        fi
+        mkdir build
+        if [[ "${{ runner.os }}" == 'macOS' ]]; then
+          export ZMUSIC_PACKAGE=zmusic-1.1.14-macos-arm.tar.xz
+        elif [[ "${{ runner.os }}" == 'Linux' ]]; then
+          export ZMUSIC_PACKAGE=zmusic-1.1.14-linux.tar.xz
+        fi
+        if [[ -n "${ZMUSIC_PACKAGE}" ]]; then
+          cd build
+          wget -q "https://github.com/coelckers/gzdoom/releases/download/ci_deps/${ZMUSIC_PACKAGE}"
+          tar -xf "${ZMUSIC_PACKAGE}"
+        fi
+
+    - name: Configure
+      shell: bash
+      run: |
+        cmake -B build -S . \
+          -DCMAKE_BUILD_TYPE=${{ matrix.config.build_type }} \
+          -DCMAKE_PREFIX_PATH=`pwd`/build/zmusic \
+          -DPK3_QUIET_ZIPDIR=ON ${{ matrix.config.extra_options }} \
+          -G Ninja
+
+    - name: Build
+      shell: bash
+      run: |
+        export GIT_DESCRIBE="${{ steps.ghd.outputs.describe }}"
+        export MAKEFLAGS=--keep-going
+        cmake --build build --config ${{ matrix.config.build_type }}
+
+    - name: Create Package
+      shell: bash
+      run: |
+        function fetch() { { curl -L "$3" | tee "$1" | sha256sum ; } && { echo "$2 $1" | sha256sum -c - ; } ; }
+
+        cd build
+        mkdir package
+        packagename="${{ runner.os }}"-UZDoom-"${{ steps.ghd.outputs.describe }}"
+
+        7z a package/licenses.zip ../docs/licenses/*
+
+        if [[ "${{ runner.os }}" == 'Windows' ]]; then
+
+            fetch gzdoom.zip \
+                6d01c5bb48610cebfa9dfd0b7705a1e20bfd56032a74484ac256d8c4e3c51bee \
+                https://github.com/ZDoom/gzdoom/releases/download/g4.14.2/gzdoom-4-14-2-windows.zip
+            unzip -j gzdoom.zip zmusic.dll -d package
+
+            fetch oalsoft.zip \
+                ea8bc36fd7fa05f64e13400d20886de753a227202a4ea3781913489a26b36fc6 \
+                https://github.com/kcat/openal-soft/releases/download/1.23.1/openal-soft-1.23.1-bin.zip
+            unzip -j oalsoft.zip openal-soft-1.23.1-bin/bin/Win64/soft_oal.dll -d package
+
+            fetch sndfile.zip \
+                2173935c0c1ed13cf627951d34483f9d405ead2eb473190461c42ba220643a3f \
+                https://github.com/libsndfile/libsndfile/releases/download/1.2.2/libsndfile-1.2.2-win64.zip
+            unzip -j sndfile.zip libsndfile-1.2.2-win64/bin/sndfile.dll -d package
+
+            mkdir package/soundfonts
+            cp ../soundfont/uzdoom.sf2 package/soundfonts
+
+            mkdir package/fm_banks
+            cp ../fm_banks/GENMIDI.GS.wopl ../fm_banks/gs-by-papiezak-and-sneakernets.wopn package/fm_banks
+
+            if [[ -d "${{ matrix.config.build_type }}" ]]; then
+              mv ${{ matrix.config.build_type }}/* .
+            fi
+            cp uzdoom.* *.pk3 package
+
+            cd package
+            7z a -sdel -r "${packagename}.zip" *
+            cd ..
+
+        elif [[ "${{ runner.os }}" == 'macOS' ]]; then
+
+            if [[ ! -d uzdoom.app ]] && [[ -d ${{ matrix.config.build_type }}/uzdoom.app ]]; then
+                mv ${{ matrix.config.build_type }}/uzdoom.app uzdoom.app
+            fi
+            mv package/licenses.zip uzdoom.app/Contents/Resources
+            mv zmusic/lib/libzmusic.dylib libzmusic.1.dylib
+            cp *.pk3 uzdoom.app/Contents/MacOS
+
+            if dsymutil uzdoom.app/Contents/MacOS/uzdoom; then
+              mv uzdoom.app/Contents/MacOS/uzdoom.dSYM uzdoom.app/Contents/Resources/
+            fi
+
+            SIGN_ID="-"
+            SIGN_OPTS=""
+
+            if [[ -n "${{ secrets.MACOS_CERTIFICATE }}" ]]; then
+                echo "${{ secrets.MACOS_CERTIFICATE }}" | base64 --decode > certificate.p12
+                security create-keychain -p "" build.keychain
+                security default-keychain -s build.keychain
+                security unlock-keychain -p "" build.keychain
+                security import certificate.p12 -k build.keychain -P "${{ secrets.MACOS_CERTIFICATE_PASSWORD }}" -T /usr/bin/codesign
+                security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+
+                SIGN_ID="${{ secrets.MACOS_CERTIFICATE_ID }}"
+                SIGN_OPTS="--options=runtime"
+            fi
+
+            dylibbundler -ns -of -cd -b \
+              -x ./uzdoom.app/Contents/MacOS/uzdoom \
+              -d ./uzdoom.app/Contents/Libs \
+              -p @executable_path/../Libs/
+
+            xattr -cr uzdoom.app
+
+            find uzdoom.app/Contents/Libs -type f -name "*.dylib" -print0 | while IFS= read -r -d '' file; do
+                codesign --remove-signature "$file"
+                codesign --force $SIGN_OPTS -s "$SIGN_ID" "$file"
+            done
+
+            /usr/bin/codesign --force --deep $SIGN_OPTS -s "$SIGN_ID" uzdoom.app -v
+
+            cp -r uzdoom.app package
+
+            cd package
+            7z a -sdel -r "${packagename}.zip" *
+            cd ..
+
+        elif [[ "${{ runner.os }}" == 'Linux' ]]; then
+
+            ldd ./uzdoom
+
+            mkdir AppDir
+            cmake --install . --prefix "$(realpath AppDir)/usr"
+
+            fetch gzdoom.deb \
+                15762da40d310d3688fb8a44ded3759424aa51a24277a024488a5b8aea573e2f \
+                https://github.com/ZDoom/gzdoom/releases/download/g4.14.2/gzdoom_4.14.2_amd64.deb
+            dpkg --fsys-tarfile gzdoom.deb | tar -xO ./opt/gzdoom/libzmusic.so.1 > libzmusic.so.1
+            mkdir -p "$(realpath AppDir)/usr/lib/x86_64-linux-gnu"
+            mv libzmusic.so.1 "$(realpath AppDir)/usr/lib/x86_64-linux-gnu/"
+
+            cp ../tools/AppImageEntrypoint.sh "$(realpath AppDir)/usr/bin/uzdoom.sh"
+            chmod +x "$(realpath AppDir)/usr/bin/uzdoom.sh"
+
+            sudo apt-get install libfuse2 # renamed to libfuse2t64 in later releases
+
+            fetch appimage-builder \
+                4b4f99cae9291d78ba12dbdabca7c0a67c72aa61eb2e5d424089171a9485e96f \
+                https://github.com/AppImageCrafters/appimage-builder/releases/download/v1.1.0/appimage-builder-1.1.0-x86_64.AppImage
+            chmod +x appimage-builder
+
+            export GIT_DESCRIBE="${{ steps.ghd.outputs.describe }}"
+            ./appimage-builder --skip-tests --recipe ../tools/AppImageBuilder.yml
+
+            # just for testing
+            ./*.AppImage --appimage-extract \
+              && { objdump -p squashfs-root/usr/bin/uzdoom | grep -o "GLIBC_[^ ]\+" | sort --version-sort ; } \
+              && { ldd squashfs-root/usr/bin/uzdoom | grep "not found" ; } \
+              && { rm -r squashfs-root ; } \
+              || true
+
+            mv *.AppImage "package/${packagename}.AppImage"
+            rm package/licenses.zip
+
+        fi
+
+    - name: Upload Package
+      uses: actions/upload-artifact@v4
+      with:
+        path: build/package
+        name: ${{ matrix.config.name }} ${{ matrix.config.build_type }}
+
+    - name: List Build Directory
+      if: always()
+      shell: bash
+      run: |
+        git status
+        ls -lR build

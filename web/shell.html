@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<title>UZDoom WASM</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<style>
+  :root {
+    --bg: #0b0b0c;
+    --panel: #131316;
+    --panel2: #1a1a1e;
+    --border: #2a2a30;
+    --border-hot: #4a4a55;
+    --text: #dcdcdc;
+    --dim: #8a8a92;
+    --accent: #c44;
+    --accent-dim: #742828;
+    --ok: #6c6;
+    --warn: #db4;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    overflow: hidden;
+  }
+  .overlay {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 16px; padding: 24px; text-align: center;
+    z-index: 10; background: var(--bg);
+  }
+  .overlay.hidden { display: none !important; }
+  h1 { margin: 0 0 2px; font-size: 22px; letter-spacing: 3px; color: var(--accent); font-weight: 700; }
+  h1 .sub { display: block; font-size: 11px; letter-spacing: 2px; color: var(--dim); margin-top: 4px; font-weight: 400; }
+  .intro { max-width: 560px; margin: 0; color: var(--dim); font-size: 12px; line-height: 1.6; }
+  .panel {
+    width: 100%; max-width: 560px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+    padding: 16px; display: flex; flex-direction: column; gap: 12px;
+  }
+  .section-title {
+    font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 2px;
+    border-bottom: 1px solid var(--border); padding-bottom: 6px; margin-bottom: 2px;
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+  .section-title .hint { text-transform: none; letter-spacing: 0; font-size: 10px; color: #555; }
+
+  /* Drop zone / picker */
+  .picker {
+    border: 1px dashed var(--border); border-radius: 3px;
+    padding: 14px 12px; cursor: pointer; transition: border-color 120ms, background 120ms;
+    display: flex; flex-direction: column; gap: 4px; text-align: left;
+    background: var(--panel2);
+  }
+  .picker:hover, .picker.drag { border-color: var(--border-hot); background: #1d1d22; }
+  .picker.filled { border-style: solid; border-color: var(--accent-dim); }
+  .picker .title { font-size: 12px; color: var(--text); }
+  .picker .desc { font-size: 11px; color: var(--dim); }
+  .picker input[type=file] { display: none; }
+
+  /* File chips */
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: #222228; border: 1px solid var(--border); border-radius: 3px;
+    padding: 4px 6px 4px 8px; font-size: 11px; color: var(--text);
+    max-width: 100%;
+  }
+  .chip .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
+  .chip .size { color: var(--dim); font-size: 10px; }
+  .chip button {
+    all: unset; cursor: pointer; color: var(--dim);
+    padding: 0 4px; font-size: 12px; line-height: 1;
+  }
+  .chip button:hover { color: var(--accent); }
+
+  /* Buttons */
+  .btn {
+    padding: 9px 14px; background: var(--panel2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 3px;
+    cursor: pointer; font-family: inherit; font-size: 12px;
+    transition: border-color 120ms, background 120ms;
+  }
+  .btn:hover { background: #222; border-color: var(--border-hot); }
+  .btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+  .btn.primary { background: var(--accent-dim); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent); }
+  .btn.primary[disabled] { background: #333; border-color: #444; color: #777; }
+  .btn.ghost { background: transparent; }
+  .btn-row { display: flex; gap: 8px; }
+  .btn-row > .btn { flex: 1; }
+
+  /* Progress / status */
+  .status-line {
+    font-size: 11px; color: var(--dim); min-height: 16px;
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  }
+  .progress { width: 100%; height: 4px; background: #111; border-radius: 2px; overflow: hidden; }
+  .progress > .bar { height: 100%; width: 0%; background: var(--accent); transition: width 120ms linear; }
+  #assetList {
+    font-size: 10px; color: var(--dim); max-height: 140px; overflow-y: auto;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 3px; padding: 8px;
+    display: none; text-align: left; line-height: 1.6;
+  }
+  #assetList.show { display: block; }
+  #assetList .done { color: var(--ok); }
+  #assetList .fail { color: var(--warn); }
+  #assetList .pending { color: var(--dim); }
+
+  /* Canvas + in-game controls */
+  #canvas { display: block; width: 100vw; height: 100vh; background: #000; outline: none; }
+  #fsBtn {
+    position: fixed; top: 12px; right: 12px; z-index: 5;
+    background: rgba(20,20,24,0.6); border: 1px solid var(--border);
+    color: var(--text); padding: 6px 10px; font-size: 11px;
+    border-radius: 3px; cursor: pointer; font-family: inherit;
+    opacity: 0.35; transition: opacity 200ms;
+  }
+  #fsBtn:hover { opacity: 1; background: rgba(30,30,36,0.9); }
+  #fsBtn.hidden { display: none; }
+
+  /* Exit panel */
+  #exited .outcome { font-size: 14px; color: var(--text); }
+  #exited .outcome.ok { color: var(--ok); }
+  #exited .outcome.err { color: var(--warn); }
+  #exited .detail { font-size: 11px; color: var(--dim); max-width: 500px; line-height: 1.6; }
+  #exited .reason { font-size: 11px; color: var(--dim); font-family: inherit; }
+
+  /* Confirm dialog */
+  .modal {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.7); z-index: 20;
+  }
+  .modal.hidden { display: none; }
+  .modal .body {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+    padding: 20px; max-width: 400px; display: flex; flex-direction: column; gap: 14px;
+  }
+  .modal h3 { margin: 0; font-size: 14px; color: var(--text); }
+  .modal p { margin: 0; font-size: 12px; color: var(--dim); line-height: 1.5; }
+</style>
+</head>
+<body>
+
+  <!-- BOOT panel: IWAD + mods + soundfont picker, launch -->
+  <div id="boot" class="overlay">
+    <h1>UZDoom<span class="sub">WEBASSEMBLY BUILD</span></h1>
+    <p class="intro">
+      Bring your own IWAD (Doom.wad, Doom2.wad, Freedoom&hellip;) and any PK3 mods.
+      Everything stays local — files are stored in your browser via IndexedDB and never leave this machine.
+    </p>
+
+    <div class="panel">
+      <div class="section-title">Game files <span class="hint">click a tile or drop files</span></div>
+
+      <label class="picker" id="iwadPicker">
+        <span class="title">IWAD (required) — or use bundled Freedoom</span>
+        <span class="desc" id="iwadDesc">No IWAD selected.</span>
+        <input type="file" accept=".wad,.WAD,.pk3,.PK3">
+      </label>
+
+      <label class="picker" id="modPicker">
+        <span class="title">Mods / PK3s (optional)</span>
+        <span class="desc" id="modDesc">No mods selected. Multi-select supported.</span>
+        <input type="file" accept=".wad,.WAD,.pk3,.PK3,.pk7,.PK7,.deh,.DEH,.bex,.BEX" multiple>
+        <div class="chips" id="modChips"></div>
+      </label>
+
+      <label class="picker" id="sfPicker">
+        <span class="title">SoundFont .sf2 (optional — MIDI music)</span>
+        <span class="desc" id="sfDesc">Using bundled SoundFont.</span>
+        <input type="file" accept=".sf2,.SF2">
+      </label>
+
+      <div class="btn-row">
+        <button class="btn" id="useFreedoomBtn">Use bundled Freedoom</button>
+        <button class="btn primary" id="launchBtn" disabled>Launch</button>
+      </div>
+
+      <div class="status-line">
+        <span id="status">Idle.</span>
+        <span id="statusRight"></span>
+      </div>
+      <div class="progress" id="progress" style="display:none;"><div class="bar"></div></div>
+      <div id="assetList"></div>
+
+      <div class="section-title" style="margin-top:4px;">Data &amp; settings</div>
+      <div class="btn-row">
+        <button class="btn ghost" id="resetBtn" title="Wipe saved games, configs, and uploaded WADs from this browser">Reset saved data</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- EXITED panel: shown when the engine exits (user picked Quit) -->
+  <div id="exited" class="overlay hidden">
+    <h1>UZDoom<span class="sub">SESSION ENDED</span></h1>
+    <div class="panel" style="gap:14px;">
+      <div class="outcome ok" id="exitOutcome">Thanks for playing.</div>
+      <div class="detail">
+        Save games and configuration have been synced to IndexedDB. Use the button below to start a new session.
+      </div>
+      <div class="reason" id="exitReason"></div>
+      <div class="btn-row">
+        <button class="btn primary" id="relaunchBtn">Relaunch</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- In-game fullscreen toggle (top-right, semi-transparent) -->
+  <button id="fsBtn" class="hidden" title="Toggle fullscreen (F11 also works)">Fullscreen</button>
+
+  <!-- Canvas -->
+  <canvas id="canvas" class="hidden" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
+
+  <!-- Reset-data confirm modal -->
+  <div id="resetModal" class="modal hidden">
+    <div class="body">
+      <h3>Reset all saved data?</h3>
+      <p>
+        This will delete every save game, configuration file, uploaded WAD, and uploaded PK3 stored by UZDoom in this browser. Bundled Freedoom and engine assets are not affected.
+      </p>
+      <p style="color:var(--warn);">This cannot be undone.</p>
+      <div class="btn-row">
+        <button class="btn" id="resetCancelBtn">Cancel</button>
+        <button class="btn primary" id="resetConfirmBtn">Delete everything</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="text/javascript">
+    var Module = {
+      canvas: (function () { return document.getElementById('canvas'); })(),
+      arguments: [],
+      preRun: [],
+      postRun: [],
+      print: function (txt) { console.log('[uzdoom]', txt); },
+      printErr: function (txt) { console.warn('[uzdoom]', txt); },
+      setStatus: function (s) {
+        var el = document.getElementById('status');
+        if (el) el.textContent = s || '';
+      },
+      monitorRunDependencies: function (n) {
+        Module.setStatus(n ? ('Loading engine… (' + n + ' deps)') : 'Engine ready.');
+      },
+    };
+    window.Module = Module;
+  </script>
+  <script src="uzdoom-loader.js"></script>
+  {{{ SCRIPT }}}
+</body>
+</html>

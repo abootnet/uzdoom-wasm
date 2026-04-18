@@ -1,0 +1,40 @@
+# uzdoom-wasm Caddy config — serve the built WASM artifacts with the
+# Cross-Origin-Opener / Cross-Origin-Embedder headers that SharedArrayBuffer
+# (and therefore pthreads) requires.
+#
+# Default: listen on :80 for plain HTTP. Put a reverse proxy in front for
+# HTTPS, or change this block to `your-domain.com { ... }` and Caddy will
+# provision a Let's Encrypt cert automatically.
+
+:80 {
+    root * /srv
+    encode gzip zstd
+    file_server {
+        index index.html
+    }
+
+    # Required for crossOriginIsolated === true (enables SharedArrayBuffer,
+    # which Emscripten pthreads builds depend on).
+    header {
+        Cross-Origin-Opener-Policy   "same-origin"
+        Cross-Origin-Embedder-Policy "require-corp"
+        Cross-Origin-Resource-Policy "same-origin"
+
+        # Standard security hardening
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy        "no-referrer"
+    }
+
+    # Content-addressable assets (change only when the image is rebuilt)
+    @immutable path *.wasm *.data *.pk3
+    header @immutable Cache-Control "public, max-age=31536000, immutable"
+
+    # HTML + JS can change between rebuilds — short cache
+    @shortcache path *.html *.js /
+    header @shortcache Cache-Control "public, max-age=300"
+
+    # Emscripten produces .wasm with the correct MIME type by default on
+    # Caddy, but be explicit for older or customised setups.
+    @wasm path *.wasm
+    header @wasm Content-Type "application/wasm"
+}
