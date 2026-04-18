@@ -26,3 +26,33 @@ language.*	text
 *.flac		binary
 *.dat		binary
 *.ico		binary
+
+# --- uzdoom-wasm additions ---------------------------------------------
+# Files executed by Linux tooling MUST be LF — anything else breaks inside
+# Docker or on a Linux host.
+*.sh       text eol=lf
+*.bash     text eol=lf
+Dockerfile text eol=lf
+Caddyfile  text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+Makefile   text eol=lf
+*.cmake    text eol=lf
+
+# Windows scripts stay CRLF
+*.bat      text eol=crlf
+*.cmd      text eol=crlf
+*.ps1      text eol=crlf
+
+# Build outputs / game-content binaries
+*.wad      binary
+*.pk3      binary
+*.pk7      binary
+*.sf2      binary
+*.wasm     binary
+*.data     binary
+*.zip      binary
+*.gz       binary
+*.jpg      binary
+*.jpeg     binary
+*.gif      binary

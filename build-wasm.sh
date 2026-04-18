@@ -51,15 +51,29 @@ case "${OS:-}${OSTYPE:-}" in
 esac
 
 export EMSDK
+
+# Every probe gets a `|| true` because bare `ls -d /path/*/glob` returns
+# exit 2 when the glob doesn't match, which under `set -euo pipefail`
+# kills the whole script. Explicit `if` blocks (not `[[ X ]] && FOO`)
+# because that pattern is unsafe with set -e.
+
 if [[ -z "${EMSDK_NODE:-}" ]]; then
-  EMSDK_NODE="$(ls -d "$EMSDK"/node/*/bin/node${EMCC_EXT:+.exe} 2>/dev/null | head -1)"
-  [[ -z "$EMSDK_NODE" ]] && EMSDK_NODE="$(ls -d "$EMSDK"/node/*/bin/node 2>/dev/null | head -1)"
-  [[ -z "$EMSDK_NODE" ]] && EMSDK_NODE="$(command -v node 2>/dev/null || true)"
+  EMSDK_NODE="$(ls -d "$EMSDK"/node/*/bin/node${EMCC_EXT:+.exe} 2>/dev/null | head -1 || true)"
+  if [[ -z "$EMSDK_NODE" ]]; then
+    EMSDK_NODE="$(ls -d "$EMSDK"/node/*/bin/node 2>/dev/null | head -1 || true)"
+  fi
+  if [[ -z "$EMSDK_NODE" ]]; then
+    EMSDK_NODE="$(command -v node 2>/dev/null || true)"
+  fi
 fi
+
 if [[ -z "${EMSDK_PYTHON:-}" ]]; then
-  EMSDK_PYTHON="$(ls -d "$EMSDK"/python/*/python${EMCC_EXT:+.exe} 2>/dev/null | head -1)"
-  [[ -z "$EMSDK_PYTHON" ]] && EMSDK_PYTHON="$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)"
+  EMSDK_PYTHON="$(ls -d "$EMSDK"/python/*/python${EMCC_EXT:+.exe} 2>/dev/null | head -1 || true)"
+  if [[ -z "$EMSDK_PYTHON" ]]; then
+    EMSDK_PYTHON="$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)"
+  fi
 fi
+
 export EMSDK_NODE EMSDK_PYTHON
 export PATH="$EMSCRIPTEN_ROOT:$PATH"
 
