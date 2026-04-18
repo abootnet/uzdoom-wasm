@@ -15,6 +15,56 @@
 (function () {
   'use strict';
 
+  // ---- WebAudio NaN guard (must run before Emscripten OpenAL inits) ------
+  //
+  // Emscripten's OpenAL → WebAudio port occasionally passes non-finite
+  // values (NaN / ±Infinity) to AudioParam setters. The proximate cause
+  // is its updateSourceRate() doppler calculation dividing by zero when a
+  // sound emits at the listener's exact position (pickup sounds, for
+  // example) — velocity vector length is zero, computed pitch ratio
+  // becomes NaN, and that NaN hits playbackRate.value. WebAudio throws
+  // synchronously on non-finite input, the exception escapes the rAF
+  // callback, and the main loop dies.
+  //
+  // Upstream bug (known, unfixed at the JS port layer). Defense in depth:
+  // wrap the AudioParam setters to clamp non-finite to zero. Silent
+  // audio glitch beats a hard crash mid-game.
+  (function guardAudioParam() {
+    if (typeof AudioParam === 'undefined') return;
+    const proto = AudioParam.prototype;
+
+    // `value` setter (the specific one tripping the crash).
+    const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+    if (desc && desc.set) {
+      const origSet = desc.set;
+      Object.defineProperty(proto, 'value', {
+        get: desc.get,
+        set(v) { origSet.call(this, Number.isFinite(v) ? v : 0); },
+        configurable: true,
+        enumerable: desc.enumerable,
+      });
+    }
+
+    // Methods that also reject non-finite values — belt-and-suspenders
+    // in case the OpenAL port ever reaches them with bad math.
+    // Excluded: exponentialRampToValueAtTime — it rejects zero and
+    // negative values too, so clamping NaN -> 0 would still throw. If
+    // that path ever fires we'll see it in logs and handle with the
+    // correct positive-minimum fallback.
+    const methods = [
+      'setValueAtTime',
+      'linearRampToValueAtTime',
+      'setTargetAtTime',
+    ];
+    for (const m of methods) {
+      if (typeof proto[m] !== 'function') continue;
+      const orig = proto[m];
+      proto[m] = function (value, ...rest) {
+        return orig.call(this, Number.isFinite(value) ? value : 0, ...rest);
+      };
+    }
+  })();
+
   const IDB_WAD_MOUNT = '/wads';
   const IDB_CFG_MOUNT = '/home/web_user/.config';
 
