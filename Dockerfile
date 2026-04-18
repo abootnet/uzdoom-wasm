@@ -13,7 +13,7 @@
 FROM emscripten/emsdk:3.1.70 AS builder
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends cmake ninja-build zip \
+ && apt-get install -y --no-install-recommends cmake ninja-build zip unzip curl \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
@@ -24,6 +24,29 @@ COPY . /src
 # may reintroduce CRLF on save — strip \r and chmod explicitly.
 RUN sed -i 's/\r$//' build-wasm.sh \
  && chmod +x build-wasm.sh
+
+# --- Freedoom IWADs --------------------------------------------------------
+# The CMake config scans web/assets/ at configure time and only adds
+# `--preload-file freedoom{1,2}.wad` to the link line when the files
+# exist. No preload-file → no uzdoom.data produced → stage-2 COPY fails.
+# Local dev already has these in web/assets/ (gitignored, 40 MB); CI
+# runners get a clean checkout without them, so fetch if missing.
+# Pinned to a specific release for reproducibility.
+ARG FREEDOOM_VERSION=0.13.0
+RUN if [ ! -f /src/web/assets/freedoom1.wad ] || [ ! -f /src/web/assets/freedoom2.wad ]; then \
+        echo "Fetching Freedoom ${FREEDOOM_VERSION}..." \
+     && mkdir -p /src/web/assets \
+     && curl -fsSL -o /tmp/freedoom.zip \
+          "https://github.com/freedoom/freedoom/releases/download/v${FREEDOOM_VERSION}/freedoom-${FREEDOOM_VERSION}.zip" \
+     && unzip -j -o /tmp/freedoom.zip \
+          "freedoom-${FREEDOOM_VERSION}/freedoom1.wad" \
+          "freedoom-${FREEDOOM_VERSION}/freedoom2.wad" \
+          -d /src/web/assets \
+     && rm /tmp/freedoom.zip ; \
+    else \
+        echo "Freedoom WADs already present in web/assets/ — skipping download" ; \
+    fi \
+ && ls -lh /src/web/assets/freedoom1.wad /src/web/assets/freedoom2.wad
 
 # --- Native host tools (lemon, re2c) ---------------------------------------
 # UZDoom invokes `lemon` (parser generator) and `re2c` (lexer generator) at
