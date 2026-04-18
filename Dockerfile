@@ -84,19 +84,40 @@ RUN printf '%s\n' \
 # those up via its OS-detection path.
 RUN BUILD_TYPE=Release EMSDK=/emsdk ./build-wasm.sh
 
+# --- Stage runtime artifacts -----------------------------------------------
+# Collect everything the runtime actually serves into /stage so the next
+# stage can COPY a single clean directory and not drag in CMake build
+# trash (CMakeFiles/, build.ninja, compile_commands.json, etc.).
+#
+# UZDoom produces FIVE PK3s (not just uzdoom.pk3) — game_support.pk3
+# carries iwadinfo.txt, which is what teaches the engine which files
+# count as valid IWADs. Miss that and user-uploaded WADs get rejected
+# with "Cannot find a game IWAD". brightmaps/lights/widescreen_gfx are
+# rendering data. soundfonts/ + fm_banks/ are MIDI backends.
+RUN mkdir -p /stage/soundfonts /stage/fm_banks \
+ && cp /src/build-wasm/uzdoom.html              /stage/index.html \
+ && cp /src/build-wasm/uzdoom.js                /stage/uzdoom.js \
+ && cp /src/build-wasm/uzdoom.wasm              /stage/uzdoom.wasm \
+ && cp /src/build-wasm/uzdoom.data              /stage/uzdoom.data \
+ && cp /src/build-wasm/uzdoom-loader.js         /stage/uzdoom-loader.js \
+ && cp /src/build-wasm/uzdoom.pk3               /stage/ \
+ && cp /src/build-wasm/game_support.pk3         /stage/ \
+ && cp /src/build-wasm/brightmaps.pk3           /stage/ \
+ && cp /src/build-wasm/lights.pk3               /stage/ \
+ && cp /src/build-wasm/game_widescreen_gfx.pk3  /stage/ \
+ && cp /src/build-wasm/soundfonts/uzdoom.sf2    /stage/soundfonts/ \
+ && cp /src/build-wasm/fm_banks/*.wopl          /stage/fm_banks/ 2>/dev/null || true \
+ && cp /src/build-wasm/fm_banks/*.wopn          /stage/fm_banks/ 2>/dev/null || true \
+ && echo "=== /stage contents ===" \
+ && ls -laR /stage
+
 # --- Runtime stage ---------------------------------------------------------
 FROM caddy:2-alpine
 
-# Rename the HTML entry point to index.html so "/" serves the game directly.
-# All internal script references (uzdoom.js, uzdoom-loader.js) are relative,
-# so the rename is safe.
-COPY --from=builder /src/build-wasm/uzdoom.html        /srv/index.html
-COPY --from=builder /src/build-wasm/uzdoom.js          /srv/uzdoom.js
-COPY --from=builder /src/build-wasm/uzdoom.wasm        /srv/uzdoom.wasm
-COPY --from=builder /src/build-wasm/uzdoom.data        /srv/uzdoom.data
-COPY --from=builder /src/build-wasm/uzdoom.pk3         /srv/uzdoom.pk3
-COPY --from=builder /src/build-wasm/uzdoom-loader.js   /srv/uzdoom-loader.js
-
+# uzdoom.html got renamed to index.html in the staging step so "/" serves
+# the game directly. All internal script refs are relative, so the rename
+# is safe.
+COPY --from=builder /stage/ /srv/
 COPY Caddyfile /etc/caddy/Caddyfile
 
 EXPOSE 80
