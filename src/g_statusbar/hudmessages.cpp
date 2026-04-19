@@ -475,29 +475,72 @@ void DHUDMessage::DrawSetup ()
 
 void DHUDMessage::DoDraw (int linenum, int x, int y, bool clean, int hudheight)
 {
+	// WASM workaround: C_MidPrint text renders semi-transparent in the
+	// GLES2/WebGL2 backend when DTA_RenderStyle = STYLE_Translucent is passed
+	// explicitly, even at Alpha == 1.0. Upstream intends STYLE_Translucent(α=1)
+	// and STYLE_Normal(α=1) to produce identical output — both map to
+	// STYLEOP_Add / STYLEALPHA_Src / STYLEALPHA_InvSrc, differing only in the
+	// STYLEF_Alpha1 flag which is a no-op at α=1. Empirically they don't on our
+	// GLES2 path (confirmed by a cyan diagnostic build 2026-04-19): routing
+	// midprints through the DTA_RenderStyle-omitting branch — which
+	// ParseDrawTextureTags (v_draw.cpp ~L1420) resolves to STYLE_Normal when
+	// Alpha >= 1.0 — makes the text render fully opaque as intended.
+	// Narrow workaround: only bypass when fully opaque, so fade variants
+	// (DHUDMessageFadeOut etc.) that transition through α<1 keep the explicit
+	// STYLE_Translucent path, which works correctly at non-unit alpha.
+	// Harmless on native GL/Vulkan backends. Remove once the GLES2-backend
+	// divergence is root-caused and fixed.
+	bool skipStyle = (Alpha >= 1.f);
 	if (hudheight == 0)
 	{
 		int scale = active_con_scaletext(twod);
-		DrawText(twod, Font, TextColor, x, y, Lines[linenum].Text.GetChars(),
-			DTA_VirtualWidth, twod->GetWidth() / scale,
-			DTA_VirtualHeight, twod->GetHeight() / scale,
-			DTA_Alpha, Alpha,
-			DTA_RenderStyle, Style,
-			DTA_KeepRatio, true,
-			TAG_DONE);
+		if (skipStyle)
+		{
+			DrawText(twod, Font, TextColor, x, y, Lines[linenum].Text.GetChars(),
+				DTA_VirtualWidth, twod->GetWidth() / scale,
+				DTA_VirtualHeight, twod->GetHeight() / scale,
+				DTA_Alpha, Alpha,
+				DTA_KeepRatio, true,
+				TAG_DONE);
+		}
+		else
+		{
+			DrawText(twod, Font, TextColor, x, y, Lines[linenum].Text.GetChars(),
+				DTA_VirtualWidth, twod->GetWidth() / scale,
+				DTA_VirtualHeight, twod->GetHeight() / scale,
+				DTA_Alpha, Alpha,
+				DTA_RenderStyle, Style,
+				DTA_KeepRatio, true,
+				TAG_DONE);
+		}
 	}
 	else
 	{
-		DrawText(twod, Font, TextColor, x, y, Lines[linenum].Text.GetChars(),
-			DTA_VirtualWidth, HUDWidth,
-			DTA_VirtualHeight, hudheight,
-			DTA_ClipLeft, ClipLeft,
-			DTA_ClipRight, ClipRight,
-			DTA_ClipTop, ClipTop,
-			DTA_ClipBottom, ClipBot,
-			DTA_Alpha, Alpha,
-			DTA_RenderStyle, Style,
-			TAG_DONE);
+		if (skipStyle)
+		{
+			DrawText(twod, Font, TextColor, x, y, Lines[linenum].Text.GetChars(),
+				DTA_VirtualWidth, HUDWidth,
+				DTA_VirtualHeight, hudheight,
+				DTA_ClipLeft, ClipLeft,
+				DTA_ClipRight, ClipRight,
+				DTA_ClipTop, ClipTop,
+				DTA_ClipBottom, ClipBot,
+				DTA_Alpha, Alpha,
+				TAG_DONE);
+		}
+		else
+		{
+			DrawText(twod, Font, TextColor, x, y, Lines[linenum].Text.GetChars(),
+				DTA_VirtualWidth, HUDWidth,
+				DTA_VirtualHeight, hudheight,
+				DTA_ClipLeft, ClipLeft,
+				DTA_ClipRight, ClipRight,
+				DTA_ClipTop, ClipTop,
+				DTA_ClipBottom, ClipBot,
+				DTA_Alpha, Alpha,
+				DTA_RenderStyle, Style,
+				TAG_DONE);
+		}
 	}
 }
 
