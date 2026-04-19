@@ -17,6 +17,94 @@ WebAssembly port of [UZDoom](https://github.com/UZDoom/UZDoom). Play GZDoom-fami
 
 If you just want to play, visit the hosted build at **[todo: your URL here]**. Upload your IWAD (or click *Use bundled Freedoom*), drop any PK3 mods, hit Launch.
 
+## Launching with URL parameters
+
+The loader accepts a small set of query-string parameters so other sites, bookmarks, terminal easter eggs, or a Discord link can drop straight into a specific IWAD + map + settings without touching the picker. When an `iwad=` param is present and resolves, the picker is skipped and the engine auto-launches.
+
+### Parameters
+
+| Param        | Example                 | Meaning                                                                                  |
+|--------------|-------------------------|------------------------------------------------------------------------------------------|
+| `iwad`       | `iwad=freedoom1.wad`    | IWAD filename. Must be bundled, side-loaded (see below), or previously uploaded via UI.  |
+| `file`       | `file=brutal.pk3,hud.pk3` | Comma-separated mod list (max 10). Each must already be in IDBFS from a prior upload.  |
+| `warp`       | `warp=1,1` / `warp=5`   | `-warp E,M` for Doom, `-warp MAP` for Doom II.                                           |
+| `skill`      | `skill=4`               | `-skill 1..5` (ITYTD..Nightmare).                                                        |
+| `map`        | `map=E2M4`              | `+map <name>` — alternative to `warp` for named maps.                                    |
+| `nomonsters` | `nomonsters=1`          | `-nomonsters`.                                                                           |
+| `fast`       | `fast=1`                | `-fast`.                                                                                 |
+| `respawn`    | `respawn=1`             | `-respawn`.                                                                              |
+| `cheat`      | `cheat=god,iddqd`       | Whitelisted argless cheats auto-issued at launch (see list below).                       |
+
+### Examples
+
+```
+# Freedoom Phase 1, E1M1, skill 4
+https://your-host/?iwad=freedoom1.wad&warp=1,1&skill=4
+
+# Doom II MAP05, fast monsters, god mode
+https://your-host/?iwad=doom2.wad&warp=5&fast=1&cheat=god
+
+# Load a previously uploaded mod on top of a bundled IWAD
+https://your-host/?iwad=freedoom2.wad&file=mymod.pk3
+```
+
+### Security model (whitelist, not sanitization)
+
+User URL strings are **never** concatenated into argv. Every param is validated against a strict regex and dropped silently on mismatch:
+
+- Filenames: `/^[a-z0-9_.-]+\.(wad|pk3|pk7|zip|deh|bex)$/i` — no paths, no spaces, no quoting.
+- `warp`: `/^\d{1,2}(?:,\d{1,2})?$/` — one or two small decimals.
+- `skill`: `/^[1-5]$/`.
+- `map`: `/^[A-Za-z0-9_]{2,8}$/`.
+- `cheat`: only the allowlisted commands below, comma-separated.
+
+**Allowed cheats** (argless only — anything taking free-form arguments like `summon`, `give`, `changemap` is intentionally excluded):
+
+```
+god  iddqd  buddha  noclip  idclip  notarget
+fly  idfa   idkfa   resurrect  kill
+```
+
+Adding parameters means editing the regex table + whitelist in `web/uzdoom-loader.js` (search for `parseLauncherArgs`) — by design, nothing reads generic query strings.
+
+### Side-loaded IWADs (runtime volume mounts)
+
+Some IWADs can't live in the public repo or Docker image for licensing reasons but are fine to serve from a private path on your own host. The loader has a lookup table (`SIDELOADED_IWADS` in `web/uzdoom-loader.js`) mapping filenames to server-relative paths. If a URL references one of these IWADs and it isn't already in IDBFS, the loader fetches it from the mapped path, writes it to `/wads/<name>`, and persists it for future loads.
+
+The shipped Caddyfile mounts `/srv/private/` with `X-Robots-Tag: noindex, nofollow` and a long immutable cache. The typical deployment is:
+
+```bash
+docker run --rm -p 8080:80 \
+  -v /your/private/wads:/srv/private:ro \
+  ghcr.io/<you>/uzdoom-wasm:latest
+```
+
+Any `.wad` you place in `/your/private/wads/` and register in the `SIDELOADED_IWADS` table becomes launchable via `?iwad=<name>` from anywhere.
+
+### Embedding in an iframe
+
+The loader detects when it's running inside an iframe (`window.self !== window.top`) and:
+
+- Appends `+vid_fullscreen 0 +i_pauseinbackground 0` to argv. Without these, the engine would grab fullscreen on first user input and halt rendering whenever the iframe loses focus — both broken for embedded use.
+- Posts `{ type: 'uzdoom:launched' }` to the parent window the moment `callMain` returns control. Parent pages can use this as a timing signal for fade-ins, transition animations, overlay reveals, etc. A timer-based fallback is still a good idea — the message won't arrive on older builds or if the engine fails to initialize.
+
+Parent-page example:
+
+```js
+const iframe = document.createElement('iframe');
+iframe.src = 'https://your-host/?iwad=doom.wad&warp=1,1';
+iframe.allow = 'cross-origin-isolated; fullscreen; gamepad; autoplay';
+document.body.appendChild(iframe);
+
+window.addEventListener('message', (e) => {
+  if (e.source === iframe.contentWindow && e.data?.type === 'uzdoom:launched') {
+    // engine is running — play your reveal animation
+  }
+});
+```
+
+For COOP/COEP to hold across the frame boundary, the parent page must also set `Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy: require-corp`, and the iframe needs `allow="cross-origin-isolated; …"`. Without that, `crossOriginIsolated` will be `false` inside the iframe and pthreads won't spin up.
+
 ## Building from source
 
 ### Prerequisites
