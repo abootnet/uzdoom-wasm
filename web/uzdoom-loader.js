@@ -68,6 +68,89 @@
   const IDB_WAD_MOUNT = '/wads';
   const IDB_CFG_MOUNT = '/home/web_user/.config';
 
+  // ---- URL launcher args -------------------------------------------------
+  //
+  // Query-param driven auto-launch. Lets external links / terminal commands
+  // boot straight into a specific IWAD + level + skill without touching the
+  // picker UI. Every value is strictly validated — raw query-string -> argv
+  // is a footgun for an engine with -file and console-command args.
+  //
+  // Schema (all params optional; absence means "use picker UI"):
+  //   ?iwad=doom.wad          → -iwad <path>      (bundled name, or a file
+  //                                                 already in IDBFS from a
+  //                                                 prior upload session)
+  //   ?file=a.pk3,b.pk3       → -file <paths>     (must already be in IDBFS;
+  //                                                 capped at 10 entries)
+  //   ?warp=1,1  or  ?warp=5  → -warp N [M]
+  //   ?skill=4                → -skill N          (1-5)
+  //   ?map=E1M1               → +map <name>       (alnum + underscore, 2-8)
+  //   ?nomonsters=1           → -nomonsters
+  //   ?fast=1                 → -fast
+  //   ?respawn=1              → -respawn
+  //   ?cheat=god,iddqd        → +god +iddqd       (allowlist only)
+  //
+  // Whitelist model: unknown params are ignored; values failing regex are
+  // silently dropped. Never interpolate raw user strings into argv.
+
+  const BUNDLED_IWADS = new Set([
+    'freedoom1.wad',
+    'freedoom2.wad',
+  ]);
+
+  // Argless cheat console commands. Anything taking arguments (summon,
+  // give, changemap) is excluded — those expand the surface into free-form
+  // strings and risk exposing things the player couldn't otherwise do.
+  const SAFE_CHEATS = new Set([
+    'god', 'iddqd', 'buddha', 'noclip', 'idclip',
+    'notarget', 'fly', 'idfa', 'idkfa',
+    'resurrect', 'kill',
+  ]);
+
+  const RE_FILENAME_WAD = /^[a-z0-9_.-]+\.wad$/i;
+  const RE_FILENAME_MOD = /^[a-z0-9_.-]+\.(pk3|pk7|wad|zip|deh|bex)$/i;
+  const RE_WARP         = /^\d{1,2}(?:,\d{1,2})?$/;
+  const RE_SKILL        = /^[1-5]$/;
+  const RE_MAP          = /^[A-Za-z0-9_]{2,8}$/;
+  const RE_CHEAT_LIST   = /^[a-z0-9_,]{1,80}$/i;
+
+  function parseLauncherArgs() {
+    const params = new URLSearchParams(window.location.search);
+    const out = { iwad: null, files: [], argv: [] };
+
+    const iwad = params.get('iwad');
+    if (iwad && RE_FILENAME_WAD.test(iwad)) out.iwad = iwad;
+
+    const fileStr = params.get('file');
+    if (fileStr) {
+      for (const f of fileStr.split(',').slice(0, 10)) {
+        if (RE_FILENAME_MOD.test(f)) out.files.push(f);
+      }
+    }
+
+    const warp = params.get('warp');
+    if (warp && RE_WARP.test(warp)) out.argv.push('-warp', ...warp.split(','));
+
+    const skill = params.get('skill');
+    if (skill && RE_SKILL.test(skill)) out.argv.push('-skill', skill);
+
+    const map = params.get('map');
+    if (map && RE_MAP.test(map)) out.argv.push('+map', map);
+
+    if (params.get('nomonsters') === '1') out.argv.push('-nomonsters');
+    if (params.get('fast')       === '1') out.argv.push('-fast');
+    if (params.get('respawn')    === '1') out.argv.push('-respawn');
+
+    const cheat = params.get('cheat');
+    if (cheat && RE_CHEAT_LIST.test(cheat)) {
+      for (const c of cheat.toLowerCase().split(',')) {
+        if (SAFE_CHEATS.has(c)) out.argv.push('+' + c);
+      }
+    }
+    return out;
+  }
+
+  const launcherArgs = parseLauncherArgs();
+
   const state = {
     iwad: null,       // { name, data, bundled? }
     mods: [],         // [{ name, data }]
@@ -297,10 +380,23 @@
     FS.mount(IDBFS, {}, IDB_CFG_MOUNT);
   }
 
+  function fsExists(path) {
+    try { FS.stat(path); return true; } catch (e) { return false; }
+  }
+
   function writeUserFiles() {
     const args = [];
     if (state.iwad && state.iwad.bundled) {
       args.push('-iwad', '/' + state.iwad.bundled);
+    } else if (state.iwad && state.iwad.persisted) {
+      // Launcher-URL path: IWAD was uploaded in a previous session and
+      // synced into IDBFS. No in-memory bytes to write — just reference it.
+      const p = IDB_WAD_MOUNT + '/' + state.iwad.name;
+      if (!fsExists(p)) {
+        throw new Error('IWAD "' + state.iwad.name + '" is not in storage yet. ' +
+                        'Upload it once through the picker, then reuse this URL.');
+      }
+      args.push('-iwad', p);
     } else if (state.iwad) {
       const p = IDB_WAD_MOUNT + '/' + state.iwad.name;
       FS.writeFile(p, state.iwad.data);
@@ -308,7 +404,16 @@
     }
     for (const m of state.mods) {
       const p = IDB_WAD_MOUNT + '/' + m.name;
-      FS.writeFile(p, m.data);
+      if (m.persisted) {
+        // Missing persisted mods are non-fatal — drop with a warning so a
+        // stale URL still boots the IWAD instead of hard-failing.
+        if (!fsExists(p)) {
+          console.warn('[launcher] mod "' + m.name + '" not in IDBFS, skipping');
+          continue;
+        }
+      } else {
+        FS.writeFile(p, m.data);
+      }
       args.push('-file', p);
     }
     // User-supplied SoundFont overrides the server-hosted default. The
@@ -318,6 +423,10 @@
       try { FS.mkdirTree('/soundfonts'); } catch (e) {}
       FS.writeFile('/soundfonts/uzdoom.sf2', state.soundfont.data);
     }
+    // Launcher query-string args land LAST so they override any defaults
+    // the picker flow might imply. Safe by construction: every entry was
+    // validated at parse time.
+    args.push(...launcherArgs.argv);
     return args;
   }
 
@@ -436,7 +545,22 @@
       try { await fetchCoreAssets(); }
       catch (e) { console.error('core asset fetch failed', e); }
 
-      const userArgs = writeUserFiles();
+      let userArgs;
+      try {
+        userArgs = writeUserFiles();
+      } catch (e) {
+        // Almost always a launcher URL referencing an IWAD that hasn't
+        // been uploaded yet. Re-arm the picker so the user can fix it
+        // without reloading.
+        console.error('[uzdoom-loader] file preparation failed:', e);
+        setStatus(String(e.message || e));
+        state.launched = false;
+        state.iwad = null;
+        state.mods = [];
+        $('iwadPicker').classList.remove('filled');
+        $('launchBtn').disabled = true;
+        return;
+      }
       Module.arguments = userArgs;
       console.log('[uzdoom-loader] launching with argv:', userArgs);
       setStatus('Booting engine…');
@@ -614,5 +738,37 @@
     }
     setTimeout(tick, 50);
   })();
+
+  // ---- Auto-launch from URL ----------------------------------------------
+  //
+  // A valid `?iwad=…` in the query string skips the picker UI and drops
+  // straight into the boot flow. Terminal shortcuts / external pages can
+  // link here directly:
+  //
+  //   https://uzdoom.bootnet.io/?iwad=freedoom1.wad&warp=1,1
+  //   https://uzdoom.bootnet.io/?iwad=doom.wad&warp=1,1&skill=4
+  //
+  // If the iwad isn't bundled and hasn't been uploaded yet, writeUserFiles
+  // throws and bootEngine's catch restores the picker with an error
+  // message — so a stale link recovers gracefully.
+  if (launcherArgs.iwad) {
+    const iwadLower = launcherArgs.iwad.toLowerCase();
+    if (BUNDLED_IWADS.has(iwadLower)) {
+      state.iwad = { name: iwadLower, data: null, bundled: iwadLower };
+    } else {
+      state.iwad = { name: launcherArgs.iwad, persisted: true };
+    }
+    for (const f of launcherArgs.files) {
+      state.mods.push({ name: f, persisted: true });
+    }
+    state.launched = true;
+    console.log('[launcher] auto-launch from URL:', launcherArgs);
+    setStatus('Auto-launching from URL…');
+    if (Module && Module.calledRun) {
+      bootEngine();
+    } else {
+      Module.onRuntimeInitialized = bootEngine;
+    }
+  }
 
 })();
