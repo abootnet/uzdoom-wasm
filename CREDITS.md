@@ -15,6 +15,10 @@ This project stands on three decades of open-source work by hundreds of people. 
 
 - Emscripten main-loop restructuring, GL ES context forcing, IDBFS mount layer, web shell + loader, ZMusic stub.
 
+### Concurrent / related work
+
+- **ololoken** is pursuing a parallel Emscripten port as [UZDoom PR #848](https://github.com/UZDoom/UZDoom/pull/848), targeting upstream engine integration with its own shader and OpenAL patches. A live demo is hosted at <https://turch.in/uzdoom+ashes2063/>. This repo (`uzdoom-wasm`) is an independent effort focused on packaging, Docker-based reproducible builds, and browser-side UX (IWAD upload, persistence, hosting headers); the two efforts were developed in parallel without shared code. Credit to ololoken for arriving at many of the same conclusions independently and for putting the work up publicly for discussion.
+
 ## Bundled content
 
 - **Freedoom** — © The Freedoom Project. BSD 3-Clause. <https://freedoom.github.io/>
