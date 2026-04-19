@@ -37,4 +37,13 @@
     # Caddy, but be explicit for older or customised setups.
     @wasm path *.wasm
     header @wasm Content-Type "application/wasm"
+
+    # Side-loaded IWADs: files mounted at runtime via `docker run -v ...`
+    # into /srv/private/. Kept out of the image, out of search engines,
+    # and marked immutable for client caching.
+    @sideloaded path /private/*
+    header @sideloaded {
+        X-Robots-Tag  "noindex, nofollow"
+        Cache-Control "private, max-age=31536000, immutable"
+    }
 }

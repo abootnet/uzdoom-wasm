@@ -151,6 +151,23 @@
 
   const launcherArgs = parseLauncherArgs();
 
+  // ---- Side-loaded IWADs -------------------------------------------------
+  //
+  // IWADs that live at a known path on the server but are NOT shipped in
+  // the repo or the Docker image. Intended for runtime-mounted volumes
+  // (docker run -v /host/wads:/srv/private:ro). If the URL references one
+  // of these names and it's missing from IDBFS, the loader fetches it
+  // from the mapped path, writes it to /wads/<name>, and persists it to
+  // IndexedDB so subsequent loads skip the fetch entirely.
+  //
+  // Adding a new side-loaded IWAD is two lines here plus putting the file
+  // on the host at the expected volume path. Names are lowercased for
+  // case-insensitive matching against URL params.
+  const SIDELOADED_IWADS = {
+    'doom.wad':  '/private/doom.wad',
+    'doom2.wad': '/private/doom2.wad',
+  };
+
   const state = {
     iwad: null,       // { name, data, bundled? }
     mods: [],         // [{ name, data }]
@@ -537,6 +554,36 @@
     setStatusRight(`Loaded ${formatBytes(totalBytes)}`);
   }
 
+  // Attempt to fetch a side-loaded IWAD from the server if the URL
+  // launcher referenced one that isn't in IDBFS yet. Silent no-op if the
+  // name isn't in the table or if the file is already cached. After a
+  // successful fetch we syncfs so subsequent loads pick it up for free.
+  async function resolveSideloadedIwad() {
+    if (!state.iwad || !state.iwad.persisted) return;
+    const p = IDB_WAD_MOUNT + '/' + state.iwad.name;
+    if (fsExists(p)) return;
+    const rel = SIDELOADED_IWADS[state.iwad.name.toLowerCase()];
+    if (!rel) return;
+
+    setStatus(`Fetching ${state.iwad.name}…`);
+    try {
+      const buf = await fetchWithProgress(rel, (recv, total) => {
+        setStatusRight(
+          total > 0
+            ? `${state.iwad.name}: ${formatBytes(recv)} / ${formatBytes(total)} (${(recv / total * 100).toFixed(0)}%)`
+            : `${state.iwad.name}: ${formatBytes(recv)}`
+        );
+      });
+      FS.writeFile(p, buf);
+      // Persist to IndexedDB so the next launch finds it without a fetch.
+      try { FS.syncfs(false, () => {}); } catch (e) {}
+      console.log(`[uzdoom-loader] side-loaded ${state.iwad.name} (${formatBytes(buf.length)})`);
+    } catch (e) {
+      // Non-fatal — writeUserFiles will surface a clear error to the user.
+      console.warn(`[uzdoom-loader] side-load failed for ${state.iwad.name}:`, e);
+    }
+  }
+
   function bootEngine() {
     mountFilesystems();
     setStatus('Syncing saves from IndexedDB…');
@@ -544,6 +591,10 @@
       if (err) console.warn('syncfs pull:', err);
       try { await fetchCoreAssets(); }
       catch (e) { console.error('core asset fetch failed', e); }
+
+      // Fetch any URL-referenced IWAD that's side-loaded on the server
+      // but not yet cached in IDBFS (first-run path).
+      await resolveSideloadedIwad();
 
       let userArgs;
       try {
@@ -561,9 +612,28 @@
         $('launchBtn').disabled = true;
         return;
       }
+      // Iframe-embedded mode: two engine defaults assume a top-level window.
+      // vid_fullscreen=1 makes the engine call requestFullscreen() on its
+      // first focused frame (visible as "clicking the game takes over the
+      // whole screen"). i_pauseinbackground=1 halts rendering when the
+      // iframe doesn't have focus — and a cross-origin iframe never has
+      // focus until the user clicks inside it, so the game appears blank
+      // behind the melt until interacted with. Force both off when embedded.
+      if (window.self !== window.top) {
+        userArgs.push('+vid_fullscreen', '0', '+i_pauseinbackground', '0');
+      }
       Module.arguments = userArgs;
       console.log('[uzdoom-loader] launching with argv:', userArgs);
       setStatus('Booting engine…');
+
+      // Notify the host page that we're about to start the engine. The
+      // parent uses this as a melt-transition timing signal — no more
+      // 13s empirical wait.
+      try {
+        if (window.self !== window.top) {
+          window.parent.postMessage({ type: 'uzdoom:launched' }, '*');
+        }
+      } catch (e) { /* not embedded, or security-restricted */ }
 
       // Hide the boot panel, show the canvas and fullscreen button.
       $('boot').classList.add('hidden');
