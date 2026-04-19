@@ -208,9 +208,17 @@
     const input = picker.querySelector('input[type=file]');
 
     input.addEventListener('change', (e) => {
-      if (e.target.files && e.target.files.length) onFiles(e.target.files);
-      // Reset so re-picking the same filename fires change again
-      input.value = '';
+      // Snapshot into a plain Array BEFORE clearing input.value.
+      // Rationale: onFiles is async — the first `await readFile(...)`
+      // inside it yields control back here, at which point
+      // `input.value = ''` executes and empties the live FileList that
+      // onFiles was still iterating over. Subsequent for-of iterations
+      // then read undefined and only the first file ever gets saved.
+      // (Drag-drop path is unaffected: its FileList comes from
+      // e.dataTransfer and isn't tied to this input's value.)
+      const files = e.target.files ? Array.from(e.target.files) : [];
+      input.value = ''; // reset first so re-picking the same filename refires change
+      if (files.length) onFiles(files);
     });
 
     ['dragenter', 'dragover'].forEach((evt) => {

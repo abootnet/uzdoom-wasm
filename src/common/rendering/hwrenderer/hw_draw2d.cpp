@@ -149,8 +149,19 @@ void Draw2D(F2DDrawer* drawer, FRenderState& state, int x, int y, int width, int
 			state.SetAddColor(cmd.mSpecialColormap[1]);
 		}
 		state.SetFog(cmd.mColor1, 0);
-		state.SetColor(1, 1, 1, 1, cmd.mDesaturate); 
+		state.SetColor(1, 1, 1, 1, cmd.mDesaturate);
+		// Indexed (paletted) 2D passes honor the command's light level so the
+		// palette-lookup path gets the right shade. Everything else — HUD
+		// text, status bar, fullscreen messages — must render fullbright.
+		// Without the explicit reset here, mLightParms[3] retains whatever
+		// the last 3D-world draw left it at (typically the player's current
+		// sector lightlevel). That value then feeds straight into the GLES2
+		// 2D shader via muLightParms, darkening HUD messages in shadowy
+		// rooms and making them invisible in pitch-black sectors. Desktop
+		// GL masks this because its 2D shader ignores the soft light
+		// component; the GLES2 fragment shader multiplies it in every time.
 		if (cmd.mFlags & F2DDrawer::DTF_Indexed) state.SetSoftLightLevel(cmd.mLightLevel);
+		else state.SetSoftLightLevel(255);
 		state.SetLightParms(0, 0);
 
 		state.AlphaFunc(Alpha_Greater, 0.f);

@@ -120,9 +120,17 @@ CUSTOM_CVARD(Float, gl_texture_filter_anisotropic, 16.f, CVAR_ARCHIVE | CVAR_GLO
 	screen->SetTextureFilterMode();
 }
 
-CUSTOM_CVARD(Int, gl_texture_filter, 6, CVAR_ARCHIVE|CVAR_GLOBALCONFIG|CVAR_NOINITCALL, "changes the texture filtering settings")
+// Default 0 (GL_NEAREST everywhere — "None" in the menu) gives the classic
+// pixelated Doom look out of the box. Upstream defaults to 6 ("None
+// (trilinear)") which smooths distant textures; that's fine for HD mods
+// but wrong as a first impression for vanilla IWADs, which is what most
+// players hitting this port will load first. Users can still switch to
+// any of the filtered modes from Options → Display → Texture Options.
+// NOTE: CVAR_ARCHIVE means users with an existing saved config keep
+// their preference — this only affects first-run / fresh-IDBFS sessions.
+CUSTOM_CVARD(Int, gl_texture_filter, 0, CVAR_ARCHIVE|CVAR_GLOBALCONFIG|CVAR_NOINITCALL, "changes the texture filtering settings")
 {
-	if (self < 0 || self > 6) self=6;
+	if (self < 0 || self > 6) self = 0;
 	screen->SetTextureFilterMode();
 }
 
