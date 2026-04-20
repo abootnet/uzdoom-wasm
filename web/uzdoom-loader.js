@@ -106,8 +106,12 @@
     'resurrect', 'kill',
   ]);
 
-  const RE_FILENAME_WAD = /^[a-z0-9_.-]+\.wad$/i;
-  const RE_FILENAME_MOD = /^[a-z0-9_.-]+\.(pk3|pk7|wad|zip|deh|bex)$/i;
+  // .ipk3 is a PK3 structured as an IWAD (Selaco, Hedon, Supplice). Treated
+  // by UZDoom as an IWAD for purposes of game detection but delivered by the
+  // author like any other pk3, so it needs to pass BOTH the iwad= and file=
+  // URL validators.
+  const RE_FILENAME_WAD = /^[a-z0-9_.-]+\.(wad|ipk3)$/i;
+  const RE_FILENAME_MOD = /^[a-z0-9_.-]+\.(pk3|ipk3|pk7|wad|zip|deh|bex)$/i;
   const RE_WARP         = /^\d{1,2}(?:,\d{1,2})?$/;
   const RE_SKILL        = /^[1-5]$/;
   const RE_MAP          = /^[A-Za-z0-9_]{2,8}$/;
@@ -321,6 +325,63 @@
     }
   });
 
+  // ---- Serialized IDBFS write ------------------------------------------
+  //
+  // Emscripten's IDBFS.syncfs opens a fresh IndexedDB `readwrite` transaction
+  // per call. If a second call fires while the first's get/put ops haven't
+  // completed, the second tx's objectStore request throws
+  // `InvalidStateError: The database connection is closing` (or, worse, the
+  // runtime aborts). Five places flush to IDB — the 30 s interval,
+  // visibilitychange, beforeunload, onEngineExit, relaunchBtn, the
+  // sideload-IWAD fetch, and the safety-net second flush in onEngineExit —
+  // and any two firing in the same tick used to corrupt the write.
+  //
+  // Guarantees:
+  //   * At most one FS.syncfs(false, ...) in flight at any time.
+  //   * Multiple callers while one is in flight COALESCE into a single
+  //     follow-up call — IDB writes are idempotent for our usage, so a
+  //     third+ request during the same window is indistinguishable from
+  //     the second waiting one.
+  //   * FS missing or sync-throw is swallowed silently; caller doesn't have
+  //     to guard.
+  //
+  // The initial `FS.syncfs(true, ...)` PULL in bootEngine is not routed
+  // through here — it runs exactly once, before any write could fire (the
+  // periodic interval has a `state.launched` guard that the pull clears).
+  let _syncInFlight = null;
+  let _syncQueued   = null;
+
+  function syncSavesToIDB() {
+    if (typeof FS === 'undefined') return Promise.resolve();
+    if (_syncInFlight) {
+      if (!_syncQueued) {
+        _syncQueued = _syncInFlight.then(() => {
+          _syncQueued = null;
+          return _doSyncWrite();
+        });
+      }
+      return _syncQueued;
+    }
+    return _doSyncWrite();
+  }
+
+  function _doSyncWrite() {
+    _syncInFlight = new Promise((resolve) => {
+      try {
+        FS.syncfs(false, (err) => {
+          if (err) console.warn('[syncfs] write:', err);
+          _syncInFlight = null;
+          resolve();
+        });
+      } catch (e) {
+        // Runtime may be shutting down (onEngineExit path, beforeunload).
+        _syncInFlight = null;
+        resolve();
+      }
+    });
+    return _syncInFlight;
+  }
+
   // ---- Engine exit handling ---------------------------------------------
   //
   // Two hooks fire in sequence when the engine quits cleanly:
@@ -369,10 +430,10 @@
   Module.onEngineExit = function (code, reason) {
     // Second-chance sync: the engine already kicked one off, but issuing
     // another here costs nothing and guards against that one racing with
-    // atexit runtime teardown on older browsers.
-    try {
-      if (typeof FS !== 'undefined') FS.syncfs(false, () => {});
-    } catch (e) { /* runtime may already be shutting down */ }
+    // atexit runtime teardown on older browsers. Goes through the
+    // serializer so it coalesces with any periodic-interval sync already
+    // mid-flight.
+    syncSavesToIDB();
     showExitPanel(code, reason);
   };
 
@@ -387,12 +448,10 @@
   // reattach every listener, and Emscripten doesn't really support it).
   $('relaunchBtn').addEventListener('click', () => {
     // Best-effort sync on the way out so the engine's final state makes
-    // it to IndexedDB (the tab reload itself won't block on this).
-    try {
-      if (typeof FS !== 'undefined') FS.syncfs(false, () => location.reload());
-      else location.reload();
-      setTimeout(() => location.reload(), 500); // safety timeout
-    } catch (e) { location.reload(); }
+    // it to IndexedDB. Goes through the serializer so it queues behind any
+    // in-flight onEngineExit write rather than racing it.
+    syncSavesToIDB().then(() => location.reload(), () => location.reload());
+    setTimeout(() => location.reload(), 500); // safety timeout
   });
 
   // ---- FS mounting + user file writes ------------------------------------
@@ -584,7 +643,7 @@
       });
       FS.writeFile(p, buf);
       // Persist to IndexedDB so the next launch finds it without a fetch.
-      try { FS.syncfs(false, () => {}); } catch (e) {}
+      syncSavesToIDB();
       console.log(`[uzdoom-loader] side-loaded ${state.iwad.name} (${formatBytes(buf.length)})`);
     } catch (e) {
       // Non-fatal — writeUserFiles will surface a clear error to the user.
@@ -670,19 +729,19 @@
   // Each one is fire-and-forget; IndexedDB writes are idempotent.
 
   setInterval(() => {
-    if (!state.launched || state.exited || typeof FS === 'undefined') return;
-    try { FS.syncfs(false, () => {}); } catch (e) {}
+    if (!state.launched || state.exited) return;
+    syncSavesToIDB();
   }, 30000);
 
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'hidden') return;
-    if (!state.launched || state.exited || typeof FS === 'undefined') return;
-    try { FS.syncfs(false, () => {}); } catch (e) {}
+    if (!state.launched || state.exited) return;
+    syncSavesToIDB();
   });
 
   window.addEventListener('beforeunload', () => {
-    if (!state.launched || state.exited || typeof FS === 'undefined') return;
-    try { FS.syncfs(false, () => {}); } catch (e) {}
+    if (!state.launched || state.exited) return;
+    syncSavesToIDB();
   });
 
   // ---- Fullscreen toggle -------------------------------------------------

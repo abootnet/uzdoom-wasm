@@ -13,9 +13,12 @@ WebAssembly port of [UZDoom](https://github.com/UZDoom/UZDoom). Play GZDoom-fami
 - **Drag-and-drop UI** — pick an IWAD + PK3 mods right on the page.
 - **Clean shutdown** — Quit from the menu flushes saves, shows an exit panel, offers Relaunch.
 
-## Quick start (play)
+## Quick start
 
-If you just want to play, visit the hosted build at **[todo: your URL here]**. Upload your IWAD (or click *Use bundled Freedoom*), drop any PK3 mods, hit Launch.
+If you just want to play, visit the hosted build at **https://uzdoom.bootnet.io/**. Upload your IWAD (or click *Use bundled Freedoom*), drop any PK3 mods, hit Launch.
+
+If you want to deploy it quickly on your own server:
+`docker run --rm -p 8080:80 ghcr.io/abootnet/uzdoom-wasm:latest`
 
 ## Launching with URL parameters
 
@@ -76,7 +79,7 @@ The shipped Caddyfile mounts `/srv/private/` with `X-Robots-Tag: noindex, nofoll
 ```bash
 docker run --rm -p 8080:80 \
   -v /your/private/wads:/srv/private:ro \
-  ghcr.io/<you>/uzdoom-wasm:latest
+  ghcr.io/abootnet/uzdoom-wasm:latest
 ```
 
 Any `.wad` you place in `/your/private/wads/` and register in the `SIDELOADED_IWADS` table becomes launchable via `?iwad=<name>` from anywhere.
@@ -119,7 +122,7 @@ For COOP/COEP to hold across the frame boundary, the parent page must also set `
 
 ```bash
 # Clone
-git clone https://github.com/<you>/uzdoom-wasm.git
+git clone https://github.com/abootnet/uzdoom-wasm.git
 cd uzdoom-wasm
 
 # Install Emscripten (one-time; installs into ./emsdk/ by default)
@@ -149,9 +152,10 @@ Output artifacts land in `build-wasm/`:
 
 ### Hosting
 
-Any static host with Cross-Origin-Opener / Cross-Origin-Embedder headers. A Caddyfile and Dockerfile will be added as the public-deployment work lands.
+The simplest path is the prebuilt image:
+`docker run --rm -p 8080:80 ghcr.io/abootnet/uzdoom-wasm:latest`
 
-Required response headers on the `.html` / `.js` / `.wasm`:
+For custom hosting, the shipped Caddyfile handles the required headers automatically; any static host works as long as it sets Cross-Origin-Opener and Cross-Origin-Embedder headers on the `.html` / `.js` / `.wasm`.
 
 ```
 Cross-Origin-Opener-Policy:  same-origin
