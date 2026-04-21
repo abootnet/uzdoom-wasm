@@ -119,7 +119,14 @@
 
   function parseLauncherArgs() {
     const params = new URLSearchParams(window.location.search);
-    const out = { iwad: null, files: [], argv: [] };
+    const out = { iwad: null, files: [], argv: [], nomelt: false };
+
+    // Opt-out for the picker-to-game melt transition. Iframe embedders
+    // running their own reveal animation (fade-in, parent-page melt) can
+    // set this so the inner transition doesn't double-animate with the
+    // outer one. Also useful for kiosk / slideshow hosts that want a
+    // straight cut.
+    if (params.get('nomelt') === '1') out.nomelt = true;
 
     const iwad = params.get('iwad');
     if (iwad && RE_FILENAME_WAD.test(iwad)) out.iwad = iwad;
@@ -679,15 +686,25 @@
         $('launchBtn').disabled = true;
         return;
       }
-      // Iframe-embedded mode: two engine defaults assume a top-level window.
-      // vid_fullscreen=1 makes the engine call requestFullscreen() on its
-      // first focused frame (visible as "clicking the game takes over the
-      // whole screen"). i_pauseinbackground=1 halts rendering when the
-      // iframe doesn't have focus — and a cross-origin iframe never has
-      // focus until the user clicks inside it, so the game appears blank
-      // behind the melt until interacted with. Force both off when embedded.
+      // Two engine defaults need overriding for the web port.
+      //
+      // +vid_fullscreen 0 — ALWAYS. The engine's default (1) makes it call
+      // Element.requestFullscreen() on its first focused frame, putting the
+      // game canvas into real browser fullscreen. That occludes EVERY
+      // other DOM element (including our melt overlay) regardless of
+      // z-index, because nothing above a fullscreen element renders.
+      // Users who want fullscreen can still toggle it via the in-page
+      // fsBtn or the engine's own Video Options menu — we just don't
+      // force it on the Launch click.
+      //
+      // +i_pauseinbackground 0 — IFRAME ONLY. Default (1) halts rendering
+      // when the window doesn't have focus. Standalone that's fine (save
+      // CPU on tab-switch). Inside a cross-origin iframe the window
+      // never has focus until first interaction, so the game would
+      // appear frozen behind the melt.
+      userArgs.push('+vid_fullscreen', '0');
       if (window.self !== window.top) {
-        userArgs.push('+vid_fullscreen', '0', '+i_pauseinbackground', '0');
+        userArgs.push('+i_pauseinbackground', '0');
       }
       Module.arguments = userArgs;
       console.log('[uzdoom-loader] launching with argv:', userArgs);
@@ -702,11 +719,64 @@
         }
       } catch (e) { /* not embedded, or security-restricted */ }
 
-      // Hide the boot panel, show the canvas and fullscreen button.
-      $('boot').classList.add('hidden');
+      // Reveal sequence — the fun part.
+      //
+      // Default path is a screen-melt from the boot panel to the live
+      // engine, matching Doom's own intermission transition. Because
+      // that requires snapshotting the boot panel while it's still
+      // painted and starting the animation after the engine has drawn
+      // at least one frame, the ordering is fussier than the simple
+      // "hide boot, show canvas" swap it used to be:
+      //
+      //   1. Make the canvas visible UNDERNEATH the still-shown boot
+      //      panel (boot has higher z-index, so it keeps covering).
+      //   2. Snapshot the viewport via UZDoomMelt.snapshot() — this
+      //      serializes the DOM through an SVG foreignObject and gets
+      //      us a decoded <img> of exactly what the user is looking at.
+      //   3. Enter the engine's main loop (callMain returns almost
+      //      immediately; actual rendering happens on subsequent rAFs).
+      //   4. Hide the boot panel now that the snapshot is captured.
+      //      From this moment on, the canvas is what's on screen, but
+      //      the engine may not have drawn its first GL frame yet.
+      //   5. Wait a few rAFs. Then overlay the snapshot at z:15 and
+      //      run the melt, revealing the game behind it.
+      //
+      // Failure mode: if the melt module is missing, the user opted
+      // out via ?nomelt=1, or snapshot fails for any reason, we fall
+      // back to a straight cut — same behaviour as before the melt
+      // existed. The revealCut() helper centralises the "no melt"
+      // path so either branch converges on the same final state.
       $('canvas').classList.remove('hidden');
-      $('fsBtn').classList.remove('hidden');
       $('canvas').focus();
+
+      // Fires once the game is fully visible — whether we got there via
+      // the melt or a straight cut. Distinct from `uzdoom:launched`
+      // (which fires pre-callMain): listeners that want the
+      // "engine is actually on screen" moment use this one.
+      const announceReveal = () => {
+        try {
+          if (window.self !== window.top) {
+            window.parent.postMessage({ type: 'uzdoom:revealed' }, '*');
+          }
+        } catch (e) { /* cross-origin restricted or not framed */ }
+      };
+      const revealCut = () => {
+        $('boot').classList.add('hidden');
+        $('fsBtn').classList.remove('hidden');
+        announceReveal();
+      };
+
+      const wantMelt = !launcherArgs.nomelt && typeof window.UZDoomMelt === 'object';
+      let snapshotPromise = null;
+      if (wantMelt) {
+        // Kick off the snapshot BEFORE callMain — the boot panel is
+        // still fully painted and no engine tick has had a chance to
+        // invalidate layout yet. Awaited below after callMain.
+        snapshotPromise = window.UZDoomMelt.snapshot().catch((e) => {
+          console.warn('[uzdoom-loader] melt snapshot failed:', e);
+          return null;
+        });
+      }
 
       try {
         Module.callMain(userArgs);
@@ -715,7 +785,44 @@
         if (e && e.name === 'ExitStatus') return;
         console.error(e);
         showExitPanel(-1, String(e.message || e));
+        return;
       }
+
+      if (!wantMelt) { revealCut(); return; }
+
+      // Await snapshot, then hand off to the melt. Wrapped in an IIFE
+      // so we don't force bootEngine's outer function to be async all
+      // the way up the chain (keeps the callMain catch above simple).
+      (async () => {
+        const snap = await snapshotPromise;
+        if (!snap) { revealCut(); return; }
+
+        // Wait a few rAFs for the engine's first draw to land on the
+        // canvas. Without this the melt reveals black pixels while the
+        // first tick is still compiling shaders / uploading fonts.
+        // Three frames ≈ 50 ms at 60 Hz — not enough to feel laggy,
+        // plenty for the first swap on a warm cache.
+        //
+        // The wait happens BEFORE hiding boot. If we hid boot first and
+        // then waited three rAFs, the user would see the Freedoom title
+        // card flash through during that ~50 ms window (the boot panel
+        // is no longer hiding the canvas, but the melt overlay hasn't
+        // been installed yet). Ordering the wait first keeps the boot
+        // panel hiding the canvas right up until the overlay appears.
+        await new Promise((r) => requestAnimationFrame(
+          () => requestAnimationFrame(
+            () => requestAnimationFrame(r))));
+
+        // Install the overlay FIRST — runOn attaches the overlay canvas
+        // above everything (z-index 2147483647) and synchronously paints
+        // the snapshot into it, so the canvas underneath boot is still
+        // covered. Hiding boot in the same turn is then seamless:
+        // boot disappears and the overlay (showing the snapshot of
+        // boot) takes its place with no visible transition.
+        window.UZDoomMelt.runOn(snap, announceReveal);
+        $('boot').classList.add('hidden');
+        $('fsBtn').classList.remove('hidden');
+      })();
     });
   }
 

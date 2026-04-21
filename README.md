@@ -37,6 +37,7 @@ The loader accepts a small set of query-string parameters so other sites, bookma
 | `fast`       | `fast=1`                | `-fast`.                                                                                 |
 | `respawn`    | `respawn=1`             | `-respawn`.                                                                              |
 | `cheat`      | `cheat=god,iddqd`       | Whitelisted argless cheats auto-issued at launch (see list below).                       |
+| `nomelt`     | `nomelt=1`              | Skip the picker→game screen-melt transition; straight cut instead.                       |
 
 ### Examples
 
@@ -88,8 +89,13 @@ Any `.wad` you place in `/your/private/wads/` and register in the `SIDELOADED_IW
 
 The loader detects when it's running inside an iframe (`window.self !== window.top`) and:
 
-- Appends `+vid_fullscreen 0 +i_pauseinbackground 0` to argv. Without these, the engine would grab fullscreen on first user input and halt rendering whenever the iframe loses focus — both broken for embedded use.
-- Posts `{ type: 'uzdoom:launched' }` to the parent window the moment `callMain` returns control. Parent pages can use this as a timing signal for fade-ins, transition animations, overlay reveals, etc. A timer-based fallback is still a good idea — the message won't arrive on older builds or if the engine fails to initialize.
+- Appends `+i_pauseinbackground 0` to argv. Without it the engine halts rendering whenever the iframe loses focus, and a cross-origin iframe never has focus until the user clicks inside it, so the game would appear frozen. (`+vid_fullscreen 0` is appended unconditionally in all modes — the engine's default would call `Element.requestFullscreen()` on launch, which blocks the picker→game melt overlay and generally isn't what you want on a button click.)
+- Posts two `postMessage` events to the parent at well-defined points in the launch:
+  - `{ type: 'uzdoom:launched' }` — fires when `callMain` is about to hand control to the engine main loop. Engine initialization has started; pixels are not on screen yet.
+  - `{ type: 'uzdoom:revealed' }` — fires after the picker→game screen-melt finishes (or immediately after `uzdoom:launched` if the melt is opted out via `?nomelt=1`). The game is fully visible as of this message.
+  
+  Parents coordinating their own reveal animation with the inner transition typically want `uzdoom:revealed`. Parents that just want "engine is booting, swap my loader overlay" can use `uzdoom:launched`. A timer-based fallback is still a good idea for either — the message won't arrive on older builds or if the engine fails to initialize.
+- Runs the picker→game [screen-melt](web/uzdoom-melt.js) by default. If the parent page is already doing its own cross-frame fade or slide, pass `?nomelt=1` so the two transitions don't double-animate.
 
 Parent-page example:
 
@@ -100,8 +106,11 @@ iframe.allow = 'cross-origin-isolated; fullscreen; gamepad; autoplay';
 document.body.appendChild(iframe);
 
 window.addEventListener('message', (e) => {
-  if (e.source === iframe.contentWindow && e.data?.type === 'uzdoom:launched') {
-    // engine is running — play your reveal animation
+  if (e.source !== iframe.contentWindow) return;
+  if (e.data?.type === 'uzdoom:launched') {
+    // engine is initializing — e.g. swap your loader overlay
+  } else if (e.data?.type === 'uzdoom:revealed') {
+    // melt finished, game is fully on screen — play your reveal
   }
 });
 ```

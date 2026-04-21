@@ -1451,11 +1451,21 @@ add_custom_command(TARGET zdoom POST_BUILD
 )
 
 if( EMSCRIPTEN )
-	# The shell.html references uzdoom-loader.js by a relative path, so the
-	# loader must sit next to uzdoom.html in the served directory.
+	# shell.html is passed to emcc via --shell-file as a bare link flag,
+	# which CMake does not otherwise track as a linker input — editing the
+	# HTML alone won't cause Ninja to relink. Declare it as a LINK_DEPENDS
+	# so any change invalidates uzdoom.html and forces a fresh link.
+	set_property(TARGET zdoom APPEND PROPERTY LINK_DEPENDS
+		${CMAKE_SOURCE_DIR}/web/shell.html
+	)
+
+	# The shell.html references these by relative path, so the loader and
+	# the melt module must sit next to uzdoom.html in the served directory.
 	add_custom_command(TARGET zdoom POST_BUILD
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different
 		${CMAKE_SOURCE_DIR}/web/uzdoom-loader.js $<TARGET_FILE_DIR:zdoom>/uzdoom-loader.js
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+		${CMAKE_SOURCE_DIR}/web/uzdoom-melt.js $<TARGET_FILE_DIR:zdoom>/uzdoom-melt.js
 	)
 endif()
 
