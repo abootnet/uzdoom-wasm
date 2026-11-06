@@ -17,13 +17,6 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
-COPY . /src
-
-# Normalize line endings and ensure the build script is executable. Files
-# coming from a Windows host can lose the +x bit through COPY, and editors
-# may reintroduce CRLF on save — strip \r and chmod explicitly.
-RUN sed -i 's/\r$//' build-wasm.sh \
- && chmod +x build-wasm.sh
 
 # --- Freedoom IWADs --------------------------------------------------------
 # The CMake config scans web/assets/ at configure time and only adds
@@ -55,6 +48,7 @@ RUN if [ ! -f /src/web/assets/freedoom1.wad ] || [ ! -f /src/web/assets/freedoom
 # repo ships pre-built Windows .exe binaries in tools-native/ for local
 # Windows dev, but those can't execute in a Linux container. Build fresh
 # Linux ELF binaries from the in-tree source before we cross-compile.
+COPY tools /src/tools
 RUN cmake -S /src/tools/lemon -B /native-build/lemon \
           -G Ninja -DCMAKE_BUILD_TYPE=Release \
  && cmake --build /native-build/lemon \
@@ -63,6 +57,16 @@ RUN cmake -S /src/tools/lemon -B /native-build/lemon \
  && cmake --build /native-build/re2c \
  && /native-build/lemon/lemon -? >/dev/null 2>&1 || true \
  && /native-build/re2c/re2c --version
+
+# Now bring in the rest of the tree. Everything above stays cached when only
+# engine / web sources change.
+COPY . /src
+
+# Normalize line endings and ensure the build script is executable. Files
+# coming from a Windows host can lose the +x bit through COPY, and editors
+# may reintroduce CRLF on save — strip \r and chmod explicitly.
+RUN sed -i 's/\r$//' build-wasm.sh \
+ && chmod +x build-wasm.sh
 
 # Overwrite ImportExecutables.cmake to point at the Linux binaries we just
 # built. Without this, the cross-compile step would try to exec the Windows
@@ -82,25 +86,23 @@ RUN printf '%s\n' \
 # The emscripten/emsdk base image sets EMSDK=/emsdk, puts emcc on PATH,
 # and pre-populates EMSDK_NODE / EMSDK_PYTHON. Our build-wasm.sh picks
 # those up via its OS-detection path.
-RUN BUILD_TYPE=Release EMSDK=/emsdk ./build-wasm.sh
-
-# --- Stage runtime artifacts -----------------------------------------------
-# Collect everything the runtime actually serves into /stage so the next
-# stage can COPY a single clean directory and not drag in CMake build
-# trash (CMakeFiles/, build.ninja, compile_commands.json, etc.).
 #
-# UZDoom produces FIVE PK3s (not just uzdoom.pk3) — game_support.pk3
-# carries iwadinfo.txt, which is what teaches the engine which files
-# count as valid IWADs. Miss that and user-uploaded WADs get rejected
-# with "Cannot find a game IWAD". brightmaps/lights/widescreen_gfx are
-# rendering data. soundfonts/ + fm_banks/ are MIDI backends.
-RUN mkdir -p /stage/soundfonts /stage/fm_banks \
+# The build dir lives in a BuildKit cache mount, so ninja only recompiles
+# files that changed and just relinks. (Needs BuildKit; cold CI builds are
+# unaffected — they simply start with an empty cache.) Staging happens in the
+# same RUN because a cache mount is not part of the image layer.
+RUN --mount=type=cache,target=/src/build-wasm,id=uzdoom-wasm-build \
+    BUILD_TYPE=Release EMSDK=/emsdk ./build-wasm.sh \
+ && mkdir -p /stage/soundfonts /stage/fm_banks \
  && cp /src/build-wasm/uzdoom.html              /stage/index.html \
  && cp /src/build-wasm/uzdoom.js                /stage/uzdoom.js \
  && cp /src/build-wasm/uzdoom.wasm              /stage/uzdoom.wasm \
  && cp /src/build-wasm/uzdoom.data              /stage/uzdoom.data \
  && cp /src/build-wasm/uzdoom-loader.js         /stage/uzdoom-loader.js \
  && cp /src/build-wasm/uzdoom-melt.js           /stage/uzdoom-melt.js \
+ && cp /src/build-wasm/uzdoom-idgames.js         /stage/uzdoom-idgames.js \
+ && cp /src/build-wasm/uzdoom-lobby.js           /stage/uzdoom-lobby.js \
+ && cp /src/build-wasm/uzdoom-touch.js           /stage/uzdoom-touch.js \
  && cp /src/build-wasm/uzdoom.pk3               /stage/ \
  && cp /src/build-wasm/game_support.pk3         /stage/ \
  && cp /src/build-wasm/brightmaps.pk3           /stage/ \
@@ -111,6 +113,12 @@ RUN mkdir -p /stage/soundfonts /stage/fm_banks \
  && cp /src/build-wasm/fm_banks/*.wopn          /stage/fm_banks/ 2>/dev/null || true \
  && echo "=== /stage contents ===" \
  && ls -laR /stage
+
+# (Staging above collects everything the runtime serves into /stage so the
+# next stage can COPY one clean directory instead of CMake build trash.
+# UZDoom produces FIVE PK3s — game_support.pk3 carries iwadinfo.txt, which
+# teaches the engine which files count as valid IWADs; brightmaps/lights/
+# widescreen_gfx are rendering data; soundfonts/ + fm_banks/ are MIDI.)
 
 # --- Runtime stage ---------------------------------------------------------
 FROM caddy:2-alpine

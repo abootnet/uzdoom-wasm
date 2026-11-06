@@ -100,6 +100,22 @@ typedef int SOCKET;
 #define IPPORT_USERRESERVED 5000
 #endif
 
+#ifdef __EMSCRIPTEN__
+// Browsers have no UDP: route the socket calls below through the WebSocket
+// relay transport (i_net_wasm.cpp). DOOMPORT is declared further down, so
+// recvfrom takes it through a function-local reference.
+#include "i_net_wasm.h"
+static u_short DOOMPORT_FWD();
+#undef closesocket
+#undef ioctlsocket
+#define socket(a, b, c)                    uznet_socket()
+#define bind(s, a, l)                      0
+#define sendto(s, b, l, f, a, al)          uznet_sendto((b), (l), (const sockaddr_in*)(a))
+#define recvfrom(s, b, l, f, a, al)        uznet_recvfrom((b), (l), (sockaddr_in*)(a), DOOMPORT_FWD())
+#define closesocket(s)                     uznet_close()
+#define ioctlsocket(s, r, v)               0
+#endif
+
 #ifdef __WIN32__
 typedef int socklen_t;
 #endif
@@ -113,6 +129,9 @@ doomcom_t doomcom;
 //
 
 static u_short DOOMPORT = (IPPORT_USERRESERVED + 29);
+#ifdef __EMSCRIPTEN__
+static u_short DOOMPORT_FWD() { return DOOMPORT; }
+#endif
 static SOCKET mysocket = INVALID_SOCKET;
 static sockaddr_in sendaddress[MAXNETNODES];
 static uint8_t sendplayer[MAXNETNODES];

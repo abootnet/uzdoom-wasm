@@ -33,6 +33,8 @@
 #include "gstrings.h"
 
 #include "doomstat.h"
+#include "uz_stats.h"
+#include "gamestate.h"
 
 #include "m_random.h"
 #include "i_system.h"
@@ -436,12 +438,19 @@ void AActor::Die (AActor *source, AActor *inflictor, int dmgflags, FName MeansOf
 
 	if (CountsAsKill())
 		Level->killed_monsters++;
-		
+
+	// WADDICTION stats: only real play counts, not title demos / playback.
+	const bool uzLive = (gamestate == GS_LEVEL && !demoplayback);
+	if (uzLive && player && player == &players[consoleplayer])
+		UzStat(2);	// the local player died
+
 	if (source && source->player)
 	{
 		if (CountsAsKill())
 		{ // count for intermission
 			source->player->killcount++;
+			if (uzLive && source->player == &players[consoleplayer])
+				UzStat(1);
 		}
 
 		// Don't count any frags at level start, because they're just telefrags
@@ -449,6 +458,8 @@ void AActor::Die (AActor *source, AActor *inflictor, int dmgflags, FName MeansOf
 		// fair to count them toward a player's score.
 		if (player && Level->maptime)
 		{
+			if (uzLive && source->player == &players[consoleplayer] && player != source->player)
+				UzStat(3);
 			source->player->frags[Level->PlayerNum(player)]++;
 			if (player == source->player)	// [RH] Cumulative frag count
 			{

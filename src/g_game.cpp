@@ -217,6 +217,12 @@ EXTERN_CVAR (Bool, invertmouse)
 EXTERN_CVAR (Bool, invertmousex)
 
 // mouse values are used once 
+#ifdef __EMSCRIPTEN__
+// On-screen gamepad state (web/uzdoom-touch.js). Held here rather than in the
+// key-binding button map, which is reset by menus, focus changes, etc.
+float uz_touch_fwd = 0, uz_touch_side = 0;
+int uz_touch_run = 0, uz_touch_buttons = 0;	// buttons: bit0 attack, bit1 use
+#endif
 float 			mousex;
 float 			mousey; 		
 
@@ -686,6 +692,10 @@ void G_BuildTiccmd (ticcmd_t *cmd)
 	if (buttonMap.ButtonDown(Button_AltAttack))		cmd->ucmd.buttons |= BT_ALTATTACK;
 	if (buttonMap.ButtonDown(Button_Use))			cmd->ucmd.buttons |= BT_USE;
 	if (buttonMap.ButtonDown(Button_Jump))			cmd->ucmd.buttons |= BT_JUMP;
+#ifdef __EMSCRIPTEN__
+	if (uz_touch_buttons & 1)						cmd->ucmd.buttons |= BT_ATTACK;
+	if (uz_touch_buttons & 2)						cmd->ucmd.buttons |= BT_USE;
+#endif
 	if (buttonMap.ButtonDown(Button_Crouch))		cmd->ucmd.buttons |= BT_CROUCH;
 	if (buttonMap.ButtonDown(Button_Zoom))			cmd->ucmd.buttons |= BT_ZOOM;
 	if (buttonMap.ButtonDown(Button_Reload))		cmd->ucmd.buttons |= BT_RELOAD;
@@ -738,6 +748,13 @@ void G_BuildTiccmd (ticcmd_t *cmd)
 
 	side -= joyint(sidemove[speed] * joyaxes[JOYAXIS_Side]);
 	forward += joyint(joyaxes[JOYAXIS_Forward] * forwardmove[speed]);
+#ifdef __EMSCRIPTEN__
+	{
+		const int ts = (speed || uz_touch_run) ? 1 : 0;
+		forward += joyint(uz_touch_fwd * forwardmove[ts]);
+		side += joyint(uz_touch_side * sidemove[ts]);
+	}
+#endif
 	fly += joyint(joyaxes[JOYAXIS_Up] * 2048);
 
 	// Handle mice.

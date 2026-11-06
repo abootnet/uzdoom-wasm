@@ -126,3 +126,5 @@ last-run.*
 # developer scratch space, not part of the shipping build, and pull in
 # Brutal Doom / DOOM2 WAD paths that are user-specific.
 /web/tests/
+/server/public/play/
+/relay/node_modules/

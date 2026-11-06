@@ -74,6 +74,8 @@ set(_EMSC_LINK
   "-sPTHREAD_POOL_SIZE=navigator.hardwareConcurrency"
   "-sFORCE_FILESYSTEM=1"
   "-lidbfs.js"
+  # WebSocket netplay transport (engine UDP -> relay).
+  "--js-library ${CMAKE_SOURCE_DIR}/web/library_uznet.js"
   "-sEXPORTED_RUNTIME_METHODS=['callMain','FS','IDBFS','ccall','cwrap','stringToUTF8','UTF8ToString']"
   "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free']"
   "-sINVOKE_RUN=0"

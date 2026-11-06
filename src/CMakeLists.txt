@@ -474,6 +474,7 @@ else()
 endif()
 
 set( PLAT_EMSCRIPTEN_SOURCES
+	common/engine/i_net_wasm.cpp
 	common/platform/emscripten/i_emsc_fs.cpp
 	common/platform/emscripten/i_emsc_input.cpp
 	common/platform/emscripten/i_emsc_specialpaths.cpp )
@@ -1466,6 +1467,12 @@ if( EMSCRIPTEN )
 		${CMAKE_SOURCE_DIR}/web/uzdoom-loader.js $<TARGET_FILE_DIR:zdoom>/uzdoom-loader.js
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different
 		${CMAKE_SOURCE_DIR}/web/uzdoom-melt.js $<TARGET_FILE_DIR:zdoom>/uzdoom-melt.js
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+		${CMAKE_SOURCE_DIR}/web/uzdoom-idgames.js $<TARGET_FILE_DIR:zdoom>/uzdoom-idgames.js
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+		${CMAKE_SOURCE_DIR}/web/uzdoom-lobby.js $<TARGET_FILE_DIR:zdoom>/uzdoom-lobby.js
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+		${CMAKE_SOURCE_DIR}/web/uzdoom-touch.js $<TARGET_FILE_DIR:zdoom>/uzdoom-touch.js
 	)
 endif()
 

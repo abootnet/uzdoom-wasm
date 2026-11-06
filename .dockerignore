@@ -42,3 +42,6 @@ last-run.*
 # what CMake actually pulls from. (If you add new build-time inputs,
 # un-exclude them here.)
 unused/
+server/
+relay/node_modules/
+.ddev/

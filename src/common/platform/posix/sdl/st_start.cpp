@@ -34,6 +34,10 @@
 
 // HEADER FILES ------------------------------------------------------------
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#include <unistd.h>
+#endif
 #include <unistd.h>
 #include <sys/time.h>
 #include <termios.h>
@@ -259,6 +263,21 @@ void FTTYStartupScreen::NetClose()
 
 bool FTTYStartupScreen::NetLoop(bool (*timer_callback)(void *), void *userdata)
 {
+#ifdef __EMSCRIPTEN__
+	// No terminal in the browser: reading stdin makes Emscripten pop up a
+	// window.prompt("Input:"). Poll the handshake on a timer instead, and give
+	// up after ~45 s (or if the page sets globalThis.UZNetAbort).
+	for (int waited = 0; waited < 45000; waited += 100)
+	{
+		if (timer_callback (userdata))
+			return true;
+		if (EM_ASM_INT({ return globalThis.UZNetAbort ? 1 : 0; }))
+			return false;
+		usleep (100000);
+	}
+	fprintf (stderr, "\nNetwork game synchronization timed out.");
+	return false;
+#endif
 	fd_set rfds;
 	struct timeval tv;
 	int retval;

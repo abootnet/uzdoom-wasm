@@ -42,6 +42,7 @@
 #include "m_random.h"
 #include "engineerrors.h"
 #include "doomstat.h"
+#include "uz_stats.h"
 #include "wi_stuff.h"
 #include "filesystem.h"
 #include "am_map.h"
@@ -1212,6 +1213,9 @@ bool FLevelLocals::DoCompleted (FString nextlevel, wbstartstruct_t &wminfo)
 
 	CheckWarpTransMap (wminfo.next, true);
 	nextlevel = wminfo.next;
+
+	if (!demoplayback)
+		UzStat(4, players[consoleplayer].itemcount, players[consoleplayer].secretcount);	// WADDICTION stats
 
 	wminfo.next_ep = FindLevelInfo (wminfo.next.GetChars())->cluster - 1;
 	wminfo.totalkills = killed_monsters;
