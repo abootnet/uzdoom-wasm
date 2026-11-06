@@ -1,0 +1,3 @@
+{ "name": "waddiction-relay", "private": true, "version": "1.0.0", "main": "relay.js",
+  "scripts": { "start": "node relay.js", "test": "node test.js" },
+  "dependencies": { "ws": "^8.18.0" } }

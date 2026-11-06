@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+## Description: Build UZDoom WASM via the Dockerfile and stage it into ./server/public/play
+## Usage: build-wasm
+## Example: ddev build-wasm
+
+set -euo pipefail
+cd "$DDEV_APPROOT"
+docker build -t uzdoom-wasm:ddev .
+rm -rf server/public/play && mkdir -p server/public/play
+cid=$(docker create uzdoom-wasm:ddev)
+trap 'docker rm -f "$cid" >/dev/null' EXIT
+docker cp "$cid":/srv/. server/public/play/
+"$DDEV_APPROOT/.ddev/commands/host/sync-web"
+echo "Staged into server/public/play/. Run: ddev start (or ddev launch)"

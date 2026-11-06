@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+
+## Description: Copy launcher JS + PHP API from web/ into server/public/play/ (no engine rebuild)
+## Usage: sync-web
+
+set -euo pipefail
+cd "$DDEV_APPROOT"
+[ -d server/public/play ] || { echo "server/public/play/ missing — run: ddev build-wasm"; exit 1; }
+cp web/uzdoom-loader.js web/uzdoom-melt.js web/uzdoom-idgames.js web/uzdoom-lobby.js web/uzdoom-touch.js server/public/play/
+mkdir -p server/public/play/api && cp web/api/*.php server/public/play/api/
+# index.html is compiled from shell.html at link time; patch in the idgames
+# script tag if the image was built before it existed.
+# Remove any existing launcher tags, then re-add them in order (idempotent).
+sed -Ei 's#<script src="?uzdoom-(idgames|lobby|touch)\.js"?></script>##g' server/public/play/index.html
+sed -Ei 's#(<script src="?uzdoom-loader\.js"?></script>)#\1<script src=uzdoom-idgames.js></script><script src=uzdoom-lobby.js></script><script src=uzdoom-touch.js></script>#' server/public/play/index.html
+sed -i 's#<title>UZDoom WASM</title>#<title>WADDICTION</title>#' server/public/play/index.html
+echo "server/public/play/ synced."
