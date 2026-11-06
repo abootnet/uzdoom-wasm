@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
-<title>UZDoom WASM</title>
+<title>WADDICTION</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
 <style>
   :root {
@@ -147,7 +147,7 @@
 
   <!-- BOOT panel: IWAD + mods + soundfont picker, launch -->
   <div id="boot" class="overlay">
-    <h1>UZDoom<span class="sub">WEBASSEMBLY BUILD</span></h1>
+    <h1>WADDICTION<span class="sub">POWERED BY UZDOOM</span></h1>
     <p class="intro">
       Bring your own IWAD (Doom.wad, Doom2.wad, Freedoom&hellip;) and any PK3 mods.
       Everything stays local — files are stored in your browser via IndexedDB and never leave this machine.
@@ -196,7 +196,7 @@
 
   <!-- EXITED panel: shown when the engine exits (user picked Quit) -->
   <div id="exited" class="overlay hidden">
-    <h1>UZDoom<span class="sub">SESSION ENDED</span></h1>
+    <h1>WADDICTION<span class="sub">SESSION ENDED</span></h1>
     <div class="panel" style="gap:14px;">
       <div class="outcome ok" id="exitOutcome">Thanks for playing.</div>
       <div class="detail">
@@ -250,6 +250,9 @@
   </script>
   <script src="uzdoom-melt.js"></script>
   <script src="uzdoom-loader.js"></script>
+  <script src="uzdoom-idgames.js"></script>
+  <script src="uzdoom-lobby.js"></script>
+  <script src="uzdoom-touch.js"></script>
   {{{ SCRIPT }}}
 </body>
 </html>

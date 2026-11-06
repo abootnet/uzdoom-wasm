@@ -213,3 +213,19 @@ Everything else — renderer, filesystem, playsim, ZScript VM — is upstream UZ
 ## Contributing
 
 Bug reports, patches, and port-specific improvements welcome. If you're fixing something in the core engine (renderer, playsim, etc.), please also send it upstream to [UZDoom](https://github.com/UZDoom/UZDoom) where it belongs — this repo only exists for the WASM-specific glue.
+
+## WADDICTION launcher, accounts and multiplayer (dev setup)
+
+The web launcher lives in `web/`, the Laravel app (accounts, lobbies, stats) in `server/`,
+and the WebSocket relay that carries netplay packets in `relay/`. Local development uses DDEV:
+
+```
+ddev start
+ddev exec "cd server && composer install && cp .env.example .env && php artisan key:generate && php artisan migrate"
+ddev exec "cd relay && npm install"
+ddev build-wasm      # build the engine via Docker and stage it in server/public/play/
+ddev sync-web        # fast path: copy launcher JS/PHP after editing web/ (no engine rebuild)
+```
+
+Set `RELAY_SECRET` in `server/.env` (the relay reads the same file). The game is served from
+`/play/`; the relay is proxied at `/relay` so one HTTPS origin (including `ddev share`) carries both.

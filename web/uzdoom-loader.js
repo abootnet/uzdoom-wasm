@@ -188,6 +188,29 @@
     exited: false,
   };
 
+  // Hook for other launcher modules (e.g. uzdoom-idgames.js).
+  window.UZLauncher = {
+    formatBytes: (n) => formatBytes(n),
+    getState: () => state,
+    notify() { if (window.UZLauncher.onChange) window.UZLauncher.onChange(); },
+    removeMod(name) {
+      state.mods = state.mods.filter((m) => m.name !== name);
+      renderModChips();
+    },
+    setIwad(name, data) {
+      state.iwad = { name, data };
+      $('iwadDesc').textContent = `${name} — ${formatBytes(data.length)}`;
+      $('iwadPicker').classList.add('filled');
+      $('launchBtn').disabled = false;
+      window.UZLauncher.notify();
+    },
+    addMod(name, data) {
+      state.mods = state.mods.filter((m) => m.name !== name);
+      state.mods.push({ name, data });
+      renderModChips();
+    },
+  };
+
   // ---- DOM helpers -------------------------------------------------------
 
   function $(id) { return document.getElementById(id); }
@@ -260,9 +283,13 @@
 
   wirePicker('iwadPicker', async (files) => {
     state.iwad = await readFile(files[0]);
+    if (window.UZLauncher && window.UZLauncher.onIwadPicked) {
+      window.UZLauncher.onIwadPicked(state.iwad.name, state.iwad.data);
+    }
     $('iwadDesc').textContent = `${state.iwad.name} — ${formatBytes(state.iwad.data.length)}`;
     $('iwadPicker').classList.add('filled');
     $('launchBtn').disabled = false;
+    window.UZLauncher.notify();
   });
 
   wirePicker('modPicker', async (files) => {
@@ -277,6 +304,7 @@
   });
 
   function renderModChips() {
+    if (window.UZLauncher) window.UZLauncher.notify();
     const chips = $('modChips');
     const desc = $('modDesc');
     chips.innerHTML = '';
@@ -315,6 +343,7 @@
     $('iwadPicker').classList.add('filled');
     $('launchBtn').disabled = false;
     setStatus('Ready to launch with Freedoom.');
+    window.UZLauncher.notify();
   });
 
   $('launchBtn').addEventListener('click', async () => {
@@ -518,6 +547,7 @@
     // the picker flow might imply. Safe by construction: every entry was
     // validated at parse time.
     args.push(...launcherArgs.argv);
+    if (window.UZLauncher && window.UZLauncher.extraArgs) args.push(...window.UZLauncher.extraArgs);
     return args;
   }
 
