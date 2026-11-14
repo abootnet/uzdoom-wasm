@@ -75,7 +75,11 @@ set(_EMSC_LINK
   "-sFORCE_FILESYSTEM=1"
   "-lidbfs.js"
   "-sEXPORTED_RUNTIME_METHODS=['callMain','FS','IDBFS','ccall','cwrap','stringToUTF8','UTF8ToString']"
-  "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free']"
+  # _uzdoom_exec_console_command injects CVar changes from the touch
+  # overlay; _uzdoom_add_look_delta feeds relative mouselook deltas
+  # straight into PostMouseMove (bypasses the DOM/SDL synthetic-event
+  # layer that iOS WebKit clamps). Both defined in c_dispatch.cpp.
+  "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_uzdoom_exec_console_command','_uzdoom_add_look_delta']"
   "-sINVOKE_RUN=0"
   "-sEXIT_RUNTIME=1"
   "-sASYNCIFY=0"

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <title>UZDoom WASM</title>
-<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
 <style>
   :root {
     --bg: #0b0b0c;
@@ -21,16 +21,30 @@
   }
   * { box-sizing: border-box; }
   html, body {
-    margin: 0; padding: 0; height: 100%;
+    margin: 0; padding: 0;
+    /* dvh (dynamic viewport height) accounts for browser chrome that
+       shows/hides on scroll (iOS Safari toolbar, Android Chrome address
+       bar). Plain 100vh ignores that and leaves the bottom of the
+       canvas hidden behind the nav bar. */
+    height: 100dvh;
     background: var(--bg); color: var(--text);
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     overflow: hidden;
   }
   .overlay {
     position: fixed; inset: 0;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    display: flex; flex-direction: column; align-items: center;
+    /* `safe center` falls back to flex-start when the content is taller
+       than the viewport — without it, normal `center` pushes the top of
+       the panel off the top of the screen on short landscape phones,
+       and `overflow-y: auto` can't scroll up past the visible area. */
+    justify-content: safe center;
     gap: 16px; padding: 24px; text-align: center;
+    /* Pad the launcher panel away from notches / nav bars. */
+    padding-top: max(24px, env(safe-area-inset-top));
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
     z-index: 10; background: var(--bg);
+    overflow-y: auto;
   }
   .overlay.hidden { display: none !important; }
   h1 { margin: 0 0 2px; font-size: 22px; letter-spacing: 3px; color: var(--accent); font-weight: 700; }
@@ -111,9 +125,28 @@
   #assetList .pending { color: var(--dim); }
 
   /* Canvas + in-game controls */
-  #canvas { display: block; width: 100vw; height: 100vh; background: #000; outline: none; }
+  /* dvh/dvw keep the canvas full-bleed when iOS Safari toolbars or
+     Android Chrome's address bar appear/disappear; plain vh would
+     over-shoot and leave the bottom of the engine view behind the
+     nav bar. Plain vw/vh fallback first for browsers without dvh
+     support (Safari < 15.4). */
+  #canvas {
+    display: block;
+    width: 100vw; height: 100vh;
+    width: 100dvw; height: 100dvh;
+    background: #000; outline: none;
+    /* Disable iOS Safari's swipe-to-go-back / pull-to-refresh /
+       double-tap-zoom gestures so they don't swallow touch events
+       intended for the game. Scoped to the canvas only so the
+       launcher panel's file pickers still respond normally. */
+    touch-action: none;
+    -webkit-touch-callout: none;
+  }
   #fsBtn {
-    position: fixed; top: 12px; right: 12px; z-index: 5;
+    /* z-index above the touch overlay (1000). Without this, the touch
+       overlay catches the touch first and the fsBtn never receives the
+       click. */
+    position: fixed; top: 12px; right: 12px; z-index: 1002;
     background: rgba(20,20,24,0.6); border: 1px solid var(--border);
     color: var(--text); padding: 6px 10px; font-size: 11px;
     border-radius: 3px; cursor: pointer; font-family: inherit;
@@ -249,6 +282,7 @@
     window.Module = Module;
   </script>
   <script src="uzdoom-melt.js"></script>
+  <script src="uzdoom-touch.js"></script>
   <script src="uzdoom-loader.js"></script>
   {{{ SCRIPT }}}
 </body>

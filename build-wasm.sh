@@ -18,7 +18,13 @@ SRC="$ROOT"
 BUILD="$ROOT/build-wasm"
 
 BUILD_TYPE="${BUILD_TYPE:-Release}"
-INITIAL_MEM="${INITIAL_MEM:-256}"
+# 128 MB default — iPad Safari rejects a 256 MB initial WebAssembly memory
+# reservation with "RangeError: Out of Memory in initMemory" (the iPad
+# per-tab allocation ceiling is stricter than desktop). ALLOW_MEMORY_GROWTH
+# is on so the engine expands organically once running. Bump this via
+# `INITIAL_MEM=192 ./build-wasm.sh` for known-heavy mods on hardware that
+# can handle the larger reservation.
+INITIAL_MEM="${INITIAL_MEM:-128}"
 JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
 
 # --- Emscripten SDK location ----------------------------------------------

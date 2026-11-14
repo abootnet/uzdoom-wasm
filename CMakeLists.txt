@@ -34,8 +34,17 @@ project(UZDoom)
 # --- UZDoom WebAssembly port: feature/flag overrides ---------------------
 # Included here (after project()) so EMSCRIPTEN is populated by the toolchain.
 if(EMSCRIPTEN)
+	# 128 MB is the sweet spot: comfortably under iPad Safari's per-tab
+	# allocation ceiling (256 MB initial fails on most iPads with a
+	# "RangeError: Out of Memory" during initMemory), while still high
+	# enough to avoid a flurry of memory.grow() calls during Freedoom
+	# startup. ALLOW_MEMORY_GROWTH=1 + MAXIMUM_MEMORY=2GB are set in
+	# Emscripten.overrides.cmake so the engine expands organically as
+	# Brutal Doom / Selaco / etc. load more assets. Override at build
+	# time via `INITIAL_MEM=192 ./build-wasm.sh` for known-heavy mods
+	# on devices that can handle the larger reservation.
 	if(NOT DEFINED UZDOOM_WASM_INITIAL_MEMORY_MB)
-		set(UZDOOM_WASM_INITIAL_MEMORY_MB 256)
+		set(UZDOOM_WASM_INITIAL_MEMORY_MB 128)
 	endif()
 	include(${CMAKE_SOURCE_DIR}/cmake/Emscripten.overrides.cmake)
 endif()

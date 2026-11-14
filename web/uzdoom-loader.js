@@ -417,6 +417,19 @@
     $('boot').classList.add('hidden');
     $('exited').classList.remove('hidden');
 
+    // Explicit notification to the touch overlay so it hides itself
+    // immediately. MutationObserver should catch the class changes
+    // above on its own, but on some browsers the observer callback
+    // runs in a later microtask than the user's first tap on
+    // Relaunch — by which point the overlay is still capturing the
+    // touch. Calling refresh() synchronously here closes that race.
+    try {
+      if (typeof window.UZDoomTouch === 'object' &&
+          typeof window.UZDoomTouch.refresh === 'function') {
+        window.UZDoomTouch.refresh();
+      }
+    } catch (e) { /* non-fatal */ }
+
     const outcome = $('exitOutcome');
     const reasonEl = $('exitReason');
     if (code === 0 || reason === 'quit' || reason === 'restart') {
@@ -754,6 +767,16 @@
       // (which fires pre-callMain): listeners that want the
       // "engine is actually on screen" moment use this one.
       const announceReveal = () => {
+        // Spin up touch controls overlay (prototype). The module
+        // self-checks input mode (auto/touch/kbm) and only shows itself
+        // when appropriate; no-op on desktop unless the user toggles
+        // touch mode explicitly via the floating button.
+        try {
+          if (typeof window.UZDoomTouch === 'object' &&
+              typeof window.UZDoomTouch.init === 'function') {
+            window.UZDoomTouch.init();
+          }
+        } catch (e) { console.warn('[uzdoom-loader] touch init failed:', e); }
         try {
           if (window.self !== window.top) {
             window.parent.postMessage({ type: 'uzdoom:revealed' }, '*');
@@ -859,13 +882,23 @@
   // resize handler, so we use the standard DOM API on the canvas directly.
 
   function toggleFullscreen() {
-    const c = $('canvas');
-    if (document.fullscreenElement) {
-      document.exitFullscreen();
-    } else if (c.requestFullscreen) {
-      c.requestFullscreen({ navigationUI: 'hide' }).catch((e) => {
-        console.warn('fullscreen request failed', e);
-      });
+    // Fullscreen the documentElement (not the canvas) so that the touch
+    // overlay — a sibling of the canvas, not a descendant — stays
+    // visible in fullscreen. Fullscreening just the canvas hid the
+    // overlay because only the fullscreen element and its descendants
+    // are rendered. The canvas already fills 100dvw/100dvh so we get
+    // the same visual result.
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    } else {
+      const target = document.documentElement;
+      const req = target.requestFullscreen || target.webkitRequestFullscreen;
+      if (req) {
+        try {
+          const p = req.call(target, { navigationUI: 'hide' });
+          if (p && p.catch) p.catch((e) => console.warn('fullscreen request failed', e));
+        } catch (e) { console.warn('fullscreen request threw', e); }
+      }
     }
   }
   $('fsBtn').addEventListener('click', toggleFullscreen);

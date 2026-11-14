@@ -1150,3 +1150,62 @@ CCMD (pullin)
 			"files and only when used at startup.\n");
 }
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+
+// Engine's relative-mouse entry point (defined in d_event.cpp, declared in
+// d_eventbase.h). Forward-declared here with C++ linkage in case the header
+// declaration isn't visible in this TU's PCH/include ordering — must stay
+// OUTSIDE the extern "C" block so the linkage matches the real definition.
+void PostMouseMove(int x, int y);
+
+extern "C" {
+
+// Exported for the web touch-control overlay (web/uzdoom-touch.js) to
+// inject CVar updates without having to simulate console-key presses.
+// AddCommandString runs the command exactly as if typed into the
+// console (subject to all normal CVar restrictions, e.g. cheat
+// protection on cheat CVars). Silent — no console-render flash, no
+// dependence on the user's actual ` bind.
+//
+// Used today to flip m_yaw / m_pitch between touch and kbm modes:
+// iPad Safari clamps synthetic mousemove clientX to the canvas rect,
+// which bounds the maximum yaw a single swipe can produce. Doubling
+// m_yaw in touch mode lets the same canvas-width swipe produce twice
+// the engine yaw, giving the player a full 360° turn within the
+// available range. Reverted when the user switches to KBM mode so
+// real mouse users aren't affected.
+EMSCRIPTEN_KEEPALIVE
+void uzdoom_exec_console_command(const char* cmd) {
+	if (cmd && *cmd) {
+		AddCommandString(cmd, -1);
+	}
+}
+
+// Exported for the web touch-control overlay to drive mouselook directly.
+//
+// Background: the original touch look path synthesized DOM mousemove
+// events on the canvas and let Emscripten's SDL translate them into
+// SDL_MOUSEMOTION -> PostMouseMove. That works on Chromium, but iPad/iOS
+// WebKit (which ALL iOS browsers use — Safari, Chrome, Firefox are all
+// WebKit there) clamps a synthetic event's clientX/Y to the canvas rect
+// and recomputes movementX/Y from that clamped delta. The result is a
+// hard "wall": once the virtual cursor reaches the canvas edge no further
+// yaw is produced, and there is no Pointer Lock on iOS to escape it.
+//
+// This entry point skips the DOM/SDL layer entirely. The overlay computes
+// a relative pixel delta from raw touchmove events and calls this each
+// frame; we feed it straight into PostMouseMove — the exact same engine
+// path a real desktop mouse uses (m_sensitivity_x/y, invert, then m_yaw /
+// m_pitch downstream). No clientX clamp, no Pointer Lock requirement, and
+// identical behavior across every browser and device.
+EMSCRIPTEN_KEEPALIVE
+void uzdoom_add_look_delta(int dx, int dy) {
+	if (dx || dy) {
+		PostMouseMove(dx, dy);
+	}
+}
+
+}  // extern "C"
+#endif
+

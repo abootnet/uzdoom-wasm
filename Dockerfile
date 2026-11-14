@@ -101,6 +101,7 @@ RUN mkdir -p /stage/soundfonts /stage/fm_banks \
  && cp /src/build-wasm/uzdoom.data              /stage/uzdoom.data \
  && cp /src/build-wasm/uzdoom-loader.js         /stage/uzdoom-loader.js \
  && cp /src/build-wasm/uzdoom-melt.js           /stage/uzdoom-melt.js \
+ && cp /src/build-wasm/uzdoom-touch.js          /stage/uzdoom-touch.js \
  && cp /src/build-wasm/uzdoom.pk3               /stage/ \
  && cp /src/build-wasm/game_support.pk3         /stage/ \
  && cp /src/build-wasm/brightmaps.pk3           /stage/ \

@@ -1459,13 +1459,16 @@ if( EMSCRIPTEN )
 		${CMAKE_SOURCE_DIR}/web/shell.html
 	)
 
-	# The shell.html references these by relative path, so the loader and
-	# the melt module must sit next to uzdoom.html in the served directory.
+	# The shell.html references these by relative path, so the loader,
+	# the melt module, and the touch-controls module must sit next to
+	# uzdoom.html in the served directory.
 	add_custom_command(TARGET zdoom POST_BUILD
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different
 		${CMAKE_SOURCE_DIR}/web/uzdoom-loader.js $<TARGET_FILE_DIR:zdoom>/uzdoom-loader.js
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different
 		${CMAKE_SOURCE_DIR}/web/uzdoom-melt.js $<TARGET_FILE_DIR:zdoom>/uzdoom-melt.js
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+		${CMAKE_SOURCE_DIR}/web/uzdoom-touch.js $<TARGET_FILE_DIR:zdoom>/uzdoom-touch.js
 	)
 endif()
 
